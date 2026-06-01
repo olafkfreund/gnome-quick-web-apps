@@ -22,7 +22,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 tokio = { workspace = true }
 
 # XDG DynamicLauncher portal (same approach as cosmic-utils/web-apps)
-ashpd = { version = "0.9", features = ["tokio"] }
+ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
 
 # lettered fallback icon
 rand = "0.8"

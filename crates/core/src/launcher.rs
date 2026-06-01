@@ -7,8 +7,12 @@
 //! a Flatpak sandbox.
 
 use anyhow::{Context, Result};
-use ashpd::desktop::dynamic_launcher::{
-    DynamicLauncherProxy, Icon, InstallOptions, PrepareInstallOptions, UninstallOptions,
+use ashpd::{
+    desktop::{
+        dynamic_launcher::{DynamicLauncherProxy, PrepareInstallOptions},
+        Icon,
+    },
+    WindowIdentifier,
 };
 
 use crate::{webapp::WebApp, APP_ID};
@@ -47,7 +51,7 @@ pub async fn install(app: &WebApp, icon_png: Vec<u8>) -> Result<()> {
 
     let prepared = proxy
         .prepare_install(
-            None,
+            &WindowIdentifier::default(),
             &app.name,
             Icon::Bytes(icon_png),
             PrepareInstallOptions::default().editable_icon(true),
@@ -62,7 +66,6 @@ pub async fn install(app: &WebApp, icon_png: Vec<u8>) -> Result<()> {
             prepared.token(),
             &launcher_filename(app),
             &desktop_entry(app),
-            InstallOptions::default(),
         )
         .await
         .context("install launcher")?;
@@ -76,7 +79,7 @@ pub async fn uninstall(app: &WebApp) -> Result<()> {
         .await
         .context("connecting to DynamicLauncher portal")?;
     proxy
-        .uninstall(&launcher_filename(app), UninstallOptions::default())
+        .uninstall(&launcher_filename(app))
         .await
         .context("uninstall launcher")?;
     Ok(())
