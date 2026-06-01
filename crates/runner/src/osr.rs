@@ -73,8 +73,31 @@ fn vk_from_keyval(k: gtk::gdk::Key) -> i32 {
     } else if k == Key::Page_Down {
         0x22
     } else {
-        k.to_unicode().map(|c| c.to_ascii_uppercase() as i32).unwrap_or(0)
+        // Only alphanumerics share their VK with uppercase ASCII. For
+        // punctuation/symbols, ASCII != VK (e.g. '.' = 0x2E = VK_DELETE!),
+        // so return 0 and let the CHAR event insert the character.
+        match k.to_unicode() {
+            Some(c) if c.is_ascii_alphanumeric() => c.to_ascii_uppercase() as i32,
+            _ => 0,
+        }
     }
+}
+
+/// Translate GTK modifier state into CEF event flags (Shift/Ctrl/Alt) so
+/// shortcuts like Ctrl+V (paste), Ctrl+C, Ctrl+A work.
+fn cef_modifiers(state: gtk::gdk::ModifierType) -> u32 {
+    use gtk::gdk::ModifierType;
+    let mut m = 0u32;
+    if state.contains(ModifierType::SHIFT_MASK) {
+        m |= 1 << 1; // EVENTFLAG_SHIFT_DOWN
+    }
+    if state.contains(ModifierType::CONTROL_MASK) {
+        m |= 1 << 2; // EVENTFLAG_CONTROL_DOWN
+    }
+    if state.contains(ModifierType::ALT_MASK) {
+        m |= 1 << 3; // EVENTFLAG_ALT_DOWN
+    }
+    m
 }
 
 fn mouse_event(x: i32, y: i32) -> MouseEvent {
@@ -389,12 +412,14 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         let keys = gtk::EventControllerKey::new();
         {
             let shared = shared.clone();
-            keys.connect_key_pressed(move |_, keyval, _code, _state| {
+            keys.connect_key_pressed(move |_, keyval, _code, state| {
                 let vk = vk_from_keyval(keyval);
+                let modifiers = cef_modifiers(state);
                 with_host(&shared, |h| {
                     h.send_key_event(Some(&KeyEvent {
                         type_: KeyEventType::RAWKEYDOWN,
                         windows_key_code: vk,
+                        modifiers,
                         ..Default::default()
                     }));
                     if let Some(c) = keyval.to_unicode() {
@@ -402,6 +427,8 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
                             h.send_key_event(Some(&KeyEvent {
                                 type_: KeyEventType::CHAR,
                                 character: c as u16,
+                                windows_key_code: vk,
+                                modifiers,
                                 ..Default::default()
                             }));
                         }
@@ -412,12 +439,14 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         }
         {
             let shared = shared.clone();
-            keys.connect_key_released(move |_, keyval, _code, _state| {
+            keys.connect_key_released(move |_, keyval, _code, state| {
                 let vk = vk_from_keyval(keyval);
+                let modifiers = cef_modifiers(state);
                 with_host(&shared, |h| {
                     h.send_key_event(Some(&KeyEvent {
                         type_: KeyEventType::KEYUP,
                         windows_key_code: vk,
+                        modifiers,
                         ..Default::default()
                     }))
                 });
