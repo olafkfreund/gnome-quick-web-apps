@@ -8,6 +8,7 @@ pub mod icon;
 pub mod launcher;
 pub mod manifest;
 pub mod paths;
+pub mod profiles;
 pub mod webapp;
 
 /// Reverse-DNS application id used for XDG dirs and the portal launcher prefix.

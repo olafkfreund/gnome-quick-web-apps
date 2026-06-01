@@ -64,10 +64,18 @@ pub fn present<F: Fn() + 'static>(
         .build();
     cat_row.set_selected((Category::ALL.len() - 1) as u32);
 
-    // Shared login profile: apps with the same name share cookies/logins.
-    let profile_row = adw::EntryRow::builder()
-        .title("Login profile (optional — share to sign in once)")
+    // Login profile dropdown: Private + detected browser profiles + shared.
+    // Apps that pick the same profile share cookies/logins (sign in once).
+    let (profile_labels, profile_values, profile_sel) =
+        profile_options(existing.as_ref().and_then(|a| a.profile.as_deref()));
+    let profile_strs: Vec<&str> = profile_labels.iter().map(String::as_str).collect();
+    let profile_combo = adw::ComboRow::builder()
+        .title("Login profile")
+        .subtitle("Apps sharing a profile sign in once")
+        .model(&gtk::StringList::new(&profile_strs))
         .build();
+    profile_combo.set_selected(profile_sel);
+    let profile_values = Rc::new(profile_values);
 
     // Icon row: preview + "Choose File…".
     let icon_img = gtk::Image::builder().pixel_size(32).build();
@@ -91,16 +99,13 @@ pub fn present<F: Fn() + 'static>(
         if let Some(idx) = Category::ALL.iter().position(|c| c == &app.category) {
             cat_row.set_selected(idx as u32);
         }
-        if let Some(profile) = &app.profile {
-            profile_row.set_text(profile);
-        }
     }
 
     let group = adw::PreferencesGroup::new();
     group.add(&url_row);
     group.add(&name_row);
     group.add(&cat_row);
-    group.add(&profile_row);
+    group.add(&profile_combo);
     group.add(&icon_row);
 
     let page = adw::PreferencesPage::new();
@@ -224,17 +229,18 @@ pub fn present<F: Fn() + 'static>(
         #[weak] url_row,
         #[weak] name_row,
         #[weak] cat_row,
-        #[weak] profile_row,
+        #[weak] profile_combo,
+        #[strong] profile_values,
         #[strong] detected,
         #[strong] chosen_icon,
         #[strong] icon_picked,
         move |_| {
             let url = url_row.text().to_string();
             let name = name_row.text().trim().to_string();
-            let profile = {
-                let p = profile_row.text().trim().to_string();
-                if p.is_empty() { None } else { Some(p) }
-            };
+            let profile = profile_values
+                .get(profile_combo.selected() as usize)
+                .cloned()
+                .flatten();
             if !is_http_url(&url) {
                 url_row.add_css_class("error");
                 return;
@@ -434,6 +440,46 @@ fn set_icon_preview(img: &gtk::Image, path: Option<&std::path::Path>) {
         Some(p) if p.exists() => img.set_from_file(Some(p)),
         _ => img.set_icon_name(Some("application-x-addon-symbolic")),
     }
+}
+
+/// Build the login-profile dropdown: "Private", detected browser profiles,
+/// and any shared profiles already used by other apps. Returns the labels,
+/// the matching profile values (None = private), and the index to preselect
+/// for `current`.
+fn profile_options(current: Option<&str>) -> (Vec<String>, Vec<Option<String>>, u32) {
+    use std::collections::HashSet;
+
+    let mut labels = vec!["Private (this app only)".to_string()];
+    let mut values: Vec<Option<String>> = vec![None];
+
+    for p in qwa_core::profiles::detect() {
+        labels.push(format!("{} — {}", p.browser, p.display));
+        values.push(Some(p.key));
+    }
+
+    let mut seen: HashSet<String> = values.iter().flatten().cloned().collect();
+    for app in WebApp::load_all() {
+        if let Some(pr) = app.profile.as_deref() {
+            if !pr.is_empty() && seen.insert(pr.to_string()) {
+                labels.push(format!("Shared: {pr}"));
+                values.push(Some(pr.to_string()));
+            }
+        }
+    }
+
+    let mut selected = 0;
+    if let Some(cur) = current.filter(|c| !c.is_empty()) {
+        match values.iter().position(|v| v.as_deref() == Some(cur)) {
+            Some(idx) => selected = idx as u32,
+            None => {
+                labels.push(format!("Shared: {cur}"));
+                values.push(Some(cur.to_string()));
+                selected = (labels.len() - 1) as u32;
+            }
+        }
+    }
+
+    (labels, values, selected)
 }
 
 fn is_http_url(url: &str) -> bool {
