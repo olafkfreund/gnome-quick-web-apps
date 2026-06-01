@@ -91,7 +91,22 @@ fn map_button(gdk_button: u32) -> MouseButtonType {
 
 wrap_app! {
     pub struct OsrApp;
-    impl App {}
+    impl App {
+        fn on_before_command_line_processing(
+            &self,
+            _process_type: Option<&CefString>,
+            command_line: Option<&mut CommandLine>,
+        ) {
+            if let Some(cmd) = command_line {
+                // Force software rendering. Off-screen rendering needs a working
+                // GPU/EGL to composite; many systems (and NixOS outside a GL
+                // runtime) lack a loadable native EGL, which leaves the view
+                // blank. Software compositing paints reliably.
+                cmd.append_switch(Some(&CefString::from("disable-gpu")));
+                cmd.append_switch(Some(&CefString::from("disable-gpu-compositing")));
+            }
+        }
+    }
 }
 
 wrap_render_handler! {
@@ -125,6 +140,8 @@ wrap_render_handler! {
             }
             let len = (width as usize) * (height as usize) * 4;
             let buf = unsafe { std::slice::from_raw_parts(buffer, len) }.to_vec();
+            static FIRST_PAINT: std::sync::Once = std::sync::Once::new();
+            FIRST_PAINT.call_once(|| tracing::info!("first osr paint {width}x{height}"));
             *self.shared.frame.borrow_mut() = Some(Frame { buf, width, height });
             self.area.queue_draw();
         }
