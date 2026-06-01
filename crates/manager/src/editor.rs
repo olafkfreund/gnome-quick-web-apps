@@ -237,10 +237,10 @@ pub fn present<F: Fn() + 'static>(
         move |_| {
             let url = url_row.text().to_string();
             let name = name_row.text().trim().to_string();
-            let profile = profile_values
+            let (profile, import_from) = profile_values
                 .get(profile_combo.selected() as usize)
                 .cloned()
-                .flatten();
+                .unwrap_or((None, None));
             if !is_http_url(&url) {
                 url_row.add_css_class("error");
                 return;
@@ -294,7 +294,7 @@ pub fn present<F: Fn() + 'static>(
                 return;
             }
             tracing::info!("{} web app {}", if editing { "edited" } else { "created" }, app.id);
-            finalize_async(app, candidates, auto);
+            finalize_async(app, candidates, auto, import_from.clone());
             on_saved();
             window.close();
         }
@@ -446,34 +446,39 @@ fn set_icon_preview(img: &gtk::Image, path: Option<&std::path::Path>) {
 /// and any shared profiles already used by other apps. Returns the labels,
 /// the matching profile values (None = private), and the index to preselect
 /// for `current`.
-fn profile_options(current: Option<&str>) -> (Vec<String>, Vec<Option<String>>, u32) {
+/// Each option carries (profile key, optional session-import source dir).
+type ProfileChoice = (Option<String>, Option<PathBuf>);
+
+fn profile_options(current: Option<&str>) -> (Vec<String>, Vec<ProfileChoice>, u32) {
     use std::collections::HashSet;
 
     let mut labels = vec!["Private (this app only)".to_string()];
-    let mut values: Vec<Option<String>> = vec![None];
+    let mut values: Vec<ProfileChoice> = vec![(None, None)];
 
     for p in qwa_core::profiles::detect() {
         labels.push(format!("{} — {}", p.browser, p.display));
-        values.push(Some(p.key));
+        // Only Chromium-family sessions can be imported into the CEF runner.
+        let import = p.chromium.then_some(p.path);
+        values.push((Some(p.key), import));
     }
 
-    let mut seen: HashSet<String> = values.iter().flatten().cloned().collect();
+    let mut seen: HashSet<String> = values.iter().filter_map(|(k, _)| k.clone()).collect();
     for app in WebApp::load_all() {
         if let Some(pr) = app.profile.as_deref() {
             if !pr.is_empty() && seen.insert(pr.to_string()) {
                 labels.push(format!("Shared: {pr}"));
-                values.push(Some(pr.to_string()));
+                values.push((Some(pr.to_string()), None));
             }
         }
     }
 
     let mut selected = 0;
     if let Some(cur) = current.filter(|c| !c.is_empty()) {
-        match values.iter().position(|v| v.as_deref() == Some(cur)) {
+        match values.iter().position(|(k, _)| k.as_deref() == Some(cur)) {
             Some(idx) => selected = idx as u32,
             None => {
                 labels.push(format!("Shared: {cur}"));
-                values.push(Some(cur.to_string()));
+                values.push((Some(cur.to_string()), None));
                 selected = (labels.len() - 1) as u32;
             }
         }
@@ -490,8 +495,18 @@ fn is_http_url(url: &str) -> bool {
 
 /// Background tail of save: optionally download a better icon, then (re)install
 /// the launcher via the portal.
-fn finalize_async(mut app: WebApp, candidates: Vec<String>, auto: bool) {
+fn finalize_async(
+    mut app: WebApp,
+    candidates: Vec<String>,
+    auto: bool,
+    import_from: Option<PathBuf>,
+) {
     crate::runtime().spawn(async move {
+        // Best-effort: seed this app's (shared) profile from a browser profile.
+        if let Some(src) = import_from {
+            let dest = qwa_core::paths::profile_dir(app.profile_key());
+            qwa_core::profiles::import_session(&src, &dest);
+        }
         if auto && !candidates.is_empty() {
             match icon::download_best(&app.id, &candidates).await {
                 Ok(path) => {

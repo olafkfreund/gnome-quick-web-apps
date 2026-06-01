@@ -101,6 +101,60 @@ pub fn detect() -> Vec<DetectedProfile> {
     out
 }
 
+/// Best-effort, one-time copy of a Chromium profile's session into our CEF
+/// profile so a freshly-created web app reuses an existing login.
+///
+/// SAFE: reads only from `src` (never writes to the user's real browser
+/// profile) and is idempotent (skips if the destination already has cookies).
+/// May still fail to *decrypt* the cookies if the CEF build looks up a
+/// different OS-keyring entry than the source browser — in that case the user
+/// simply signs in once.
+pub fn import_session(src_profile: &std::path::Path, dest_root: &std::path::Path) -> bool {
+    let dest_cache = dest_root.join("cache");
+    let dest_cookies_new = dest_cache.join("Network").join("Cookies");
+    let dest_cookies_old = dest_cache.join("Cookies");
+    if dest_cookies_new.exists() || dest_cookies_old.exists() {
+        return false; // already populated; don't clobber a live session
+    }
+
+    let mut copied_any = false;
+
+    // The os_crypt key lives in the browser's root Local State (one level up).
+    if let Some(src_root) = src_profile.parent() {
+        let src_ls = src_root.join("Local State");
+        if src_ls.exists() {
+            let _ = std::fs::create_dir_all(dest_root);
+            if std::fs::copy(&src_ls, dest_root.join("Local State")).is_ok() {
+                copied_any = true;
+            }
+        }
+    }
+
+    // Cookies (+ their journal). Newer Chromium uses Network/Cookies.
+    for rel in [
+        std::path::Path::new("Network/Cookies"),
+        std::path::Path::new("Network/Cookies-journal"),
+        std::path::Path::new("Cookies"),
+        std::path::Path::new("Cookies-journal"),
+    ] {
+        let s = src_profile.join(rel);
+        if s.exists() {
+            let d = dest_cache.join(rel);
+            if let Some(parent) = d.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::copy(&s, &d).is_ok() {
+                copied_any = true;
+            }
+        }
+    }
+
+    if copied_any {
+        tracing::info!("imported session from {}", src_profile.display());
+    }
+    copied_any
+}
+
 /// Parse `profiles.ini` into (Name, Path) pairs.
 fn parse_firefox_ini(ini: &str) -> Vec<(String, String)> {
     let mut profiles = Vec::new();
