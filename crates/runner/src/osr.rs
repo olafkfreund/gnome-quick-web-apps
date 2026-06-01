@@ -225,10 +225,32 @@ wrap_life_span_handler! {
     }
 }
 
+wrap_load_handler! {
+    struct OsrLoadHandler {
+        back: gtk::Button,
+        forward: gtk::Button,
+    }
+
+    impl LoadHandler {
+        fn on_loading_state_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            _is_loading: i32,
+            can_go_back: i32,
+            can_go_forward: i32,
+        ) {
+            self.back.set_sensitive(can_go_back != 0);
+            self.forward.set_sensitive(can_go_forward != 0);
+        }
+    }
+}
+
 wrap_client! {
     struct OsrClient {
         shared: Rc<Shared>,
         area: gtk::DrawingArea,
+        back: gtk::Button,
+        forward: gtk::Button,
     }
 
     impl Client {
@@ -246,6 +268,10 @@ wrap_client! {
                 .map(|a| (a.scope, a.url))
                 .unwrap_or((None, String::new()));
             Some(crate::app::simple_handler::ScopeRequestHandler::new(scope, app_url))
+        }
+
+        fn load_handler(&self) -> Option<LoadHandler> {
+            Some(OsrLoadHandler::new(self.back.clone(), self.forward.clone()))
         }
     }
 }
@@ -275,6 +301,45 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
 
     application.connect_activate(move |app| {
         let header = adw::HeaderBar::new();
+
+        // Navigation controls. Back/forward start insensitive and are toggled
+        // by the LoadHandler; reload/stop is a simple reload for now.
+        let back = gtk::Button::from_icon_name("go-previous-symbolic");
+        back.set_tooltip_text(Some("Back"));
+        back.set_sensitive(false);
+        let forward = gtk::Button::from_icon_name("go-next-symbolic");
+        forward.set_tooltip_text(Some("Forward"));
+        forward.set_sensitive(false);
+        let reload = gtk::Button::from_icon_name("view-refresh-symbolic");
+        reload.set_tooltip_text(Some("Reload"));
+        header.pack_start(&back);
+        header.pack_start(&forward);
+        header.pack_start(&reload);
+
+        {
+            let shared = shared.clone();
+            back.connect_clicked(move |_| {
+                if let Some(b) = shared.browser.borrow().as_ref() {
+                    b.go_back();
+                }
+            });
+        }
+        {
+            let shared = shared.clone();
+            forward.connect_clicked(move |_| {
+                if let Some(b) = shared.browser.borrow().as_ref() {
+                    b.go_forward();
+                }
+            });
+        }
+        {
+            let shared = shared.clone();
+            reload.connect_clicked(move |_| {
+                if let Some(b) = shared.browser.borrow().as_ref() {
+                    b.reload();
+                }
+            });
+        }
 
         let area = gtk::DrawingArea::new();
         area.set_hexpand(true);
@@ -314,7 +379,7 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         window.present();
 
         // Create the off-screen browser bound to this drawing area.
-        let mut client = OsrClient::new(shared.clone(), area.clone());
+        let mut client = OsrClient::new(shared.clone(), area.clone(), back.clone(), forward.clone());
         let window_info = WindowInfo {
             windowless_rendering_enabled: 1,
             ..Default::default()
