@@ -4,150 +4,168 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GNOME Quick Web Apps — turn any website into a desktop app</title>
-  <meta name="description" content="A native GTK4/libadwaita web-app manager for GNOME with PWA manifest auto-detection, automatic icons, URL-scope confinement and bundled Chromium rendering." />
+  <meta name="description" content="A native GTK4/libadwaita web-app manager for GNOME: one-click templates, PWA detection, shared logins, default-handler integration and native notifications." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0b0e14;
-      --bg-soft: #131722;
-      --card: #1a1f2e;
-      --line: #262d3d;
-      --text: #e6e9ef;
-      --muted: #9aa4b8;
-      --accent: #3584e4;     /* GNOME blue */
-      --accent-2: #9141ac;   /* GNOME purple */
-      --green: #33d17a;
+      --accent: #3584e4;          /* Adwaita blue */
+      --accent-2: #1c71d8;
+      --bg: #fafafb;
+      --bg-elev: #ffffff;
+      --card: #ffffff;
+      --line: #e3e3e6;
+      --text: #1e1e22;
+      --muted: #5e5c64;           /* Adwaita dark5 */
+      --shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06);
+      --radius: 16px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1a1a1e; --bg-elev: #242428; --card: #242428;
+        --line: #38383d; --text: #ffffff; --muted: #c0bfbc;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.4);
+      }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
+      font-family: 'Inter', 'Cantarell', system-ui, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
       -webkit-font-smoothing: antialiased;
     }
     a { color: var(--accent); text-decoration: none; }
     .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
 
-    header.hero {
-      position: relative;
-      padding: 120px 0 96px;
-      text-align: center;
-      background:
-        radial-gradient(900px 500px at 50% -10%, rgba(53,132,228,0.22), transparent 70%),
-        radial-gradient(700px 400px at 80% 10%, rgba(145,65,172,0.18), transparent 70%);
-      border-bottom: 1px solid var(--line);
-    }
-    .badge {
-      display: inline-block; font-size: 13px; font-weight: 600;
-      color: var(--green); border: 1px solid var(--line);
-      background: var(--bg-soft); border-radius: 999px;
-      padding: 6px 14px; margin-bottom: 24px; letter-spacing: .02em;
-    }
-    h1 {
-      font-size: clamp(36px, 6vw, 64px); font-weight: 800;
-      line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 20px;
-      background: linear-gradient(120deg, #fff 30%, var(--accent) 100%);
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-    }
-    .sub { font-size: clamp(17px, 2.4vw, 21px); color: var(--muted); max-width: 680px; margin: 0 auto 36px; }
-    .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-    .btn {
-      font-weight: 600; font-size: 15px; padding: 13px 26px; border-radius: 12px;
-      border: 1px solid transparent; transition: transform .15s ease, background .15s ease;
-    }
+    /* Hero */
+    .hero { text-align: center; padding: 80px 0 40px;
+      background: radial-gradient(900px 420px at 50% -120px, rgba(53,132,228,.14), transparent 70%); }
+    .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
+      color: var(--accent); background: rgba(53,132,228,.12); border-radius: 999px; padding: 6px 14px; margin-bottom: 22px; }
+    h1 { font-size: clamp(36px, 6vw, 60px); font-weight: 800; letter-spacing: -.025em; line-height: 1.05; }
+    .tagline { font-size: clamp(17px, 2.4vw, 21px); color: var(--muted); max-width: 620px; margin: 18px auto 30px; }
+    .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { font-weight: 600; font-size: 15px; padding: 12px 24px; border-radius: 12px; border: 1px solid transparent;
+      transition: transform .12s ease, box-shadow .12s ease; cursor: pointer; }
     .btn:hover { transform: translateY(-2px); }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-ghost { background: var(--bg-soft); border-color: var(--line); color: var(--text); }
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: var(--shadow); }
+    .btn-ghost { background: var(--bg-elev); border-color: var(--line); color: var(--text); }
 
-    section { padding: 80px 0; }
-    .eyebrow { color: var(--accent); font-weight: 600; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
-    h2 { font-size: clamp(26px, 4vw, 38px); font-weight: 800; letter-spacing: -0.01em; margin: 8px 0 40px; }
+    /* Screenshot */
+    .shot { margin: 44px auto 0; max-width: 860px; }
+    .shot img { width: 100%; border-radius: var(--radius); border: 1px solid var(--line); box-shadow: var(--shadow); display: block; }
+    .shot figcaption { color: var(--muted); font-size: 14px; margin-top: 12px; text-align: center; }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
-    .card {
-      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-      padding: 26px; transition: border-color .2s ease, transform .2s ease;
-    }
-    .card:hover { border-color: var(--accent); transform: translateY(-3px); }
-    .card .ico { font-size: 26px; margin-bottom: 14px; }
-    .card h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    section { padding: 72px 0; }
+    .eyebrow { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; text-align: center; }
+    h2 { font-size: clamp(26px, 4vw, 36px); font-weight: 800; letter-spacing: -.02em; text-align: center; margin: 8px 0 44px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 18px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px;
+      transition: transform .18s ease, box-shadow .18s ease; }
+    .card:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+    .card .ico { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 22px;
+      background: rgba(53,132,228,.12); margin-bottom: 14px; }
+    .card h3 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
     .card p { color: var(--muted); font-size: 15px; }
 
-    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
-    th, td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--line); font-size: 15px; }
-    th { background: var(--bg-soft); font-weight: 600; }
-    td.win { color: var(--green); font-weight: 600; }
-    tr:last-child td { border-bottom: none; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+    @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+    .split img { width: 100%; border-radius: var(--radius); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .split h2 { text-align: left; margin: 0 0 14px; }
+    .split p { color: var(--muted); font-size: 16px; }
 
-    .roadmap { display: grid; gap: 14px; }
-    .phase { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 20px 24px; }
-    .phase b { display: block; margin-bottom: 4px; }
-    .phase span { color: var(--muted); font-size: 15px; }
+    /* Install */
+    .install { background: var(--bg-elev); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .codecards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .codecard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+    .codecard h3 { font-size: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    pre { background: #0d1117; color: #e6edf3; border-radius: 10px; padding: 14px 16px; overflow-x: auto;
+      font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13.5px; line-height: 1.7; }
+    pre .c { color: #7d8590; }
 
-    footer { border-top: 1px solid var(--line); padding: 40px 0 60px; color: var(--muted); font-size: 14px; text-align: center; }
-    footer code { background: var(--bg-soft); padding: 2px 8px; border-radius: 6px; }
+    footer { padding: 40px 0 56px; text-align: center; color: var(--muted); font-size: 14px; }
+    footer a { font-weight: 500; }
   </style>
 </head>
 <body>
   <header class="hero">
     <div class="wrap">
-      <span class="badge">● Phase 1 in progress</span>
-      <h1>Turn any website into<br />a first-class GNOME app</h1>
-      <p class="sub">
-        A native GTK4 &amp; libadwaita web-app manager. Paste a URL — it detects the
-        PWA manifest, grabs the icon, and installs a launcher into your app grid.
-        Each app runs isolated, with its own window and dock identity.
+      <span class="pill">● Native GTK4 &amp; libadwaita</span>
+      <h1>Turn any website into<br />a real GNOME app</h1>
+      <p class="tagline">
+        Install web apps that look and behave like native software — their own window,
+        icon, profile and notifications. Built for GNOME, powered by Chromium.
       </p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/olafkfreund/gnome-quick-web-apps">View on GitHub</a>
-        <a class="btn btn-ghost" href="https://github.com/olafkfreund/gnome-quick-web-apps/issues">Track progress</a>
+        <a class="btn btn-primary" href="https://github.com/olafkfreund/gnome-quick-web-apps">Get it on GitHub</a>
+        <a class="btn btn-ghost" href="#install">Install</a>
       </div>
+
+      <figure class="shot">
+        <img src="screenshots/manager.png" alt="The Quick Web Apps manager listing installed web apps with their icons" />
+        <figcaption>Manage all your web apps in one place — each with its own icon, profile and dock identity.</figcaption>
+      </figure>
     </div>
   </header>
 
   <section class="wrap">
     <span class="eyebrow">Features</span>
-    <h2>Built for the modern desktop</h2>
+    <h2>Everything a desktop app should be</h2>
     <div class="grid">
-      <div class="card"><div class="ico">🔎</div><h3>PWA manifest autofill</h3><p>Paste a URL and the name, icon, theme colour and navigation scope fill themselves in from the site's Web App Manifest.</p></div>
-      <div class="card"><div class="ico">🎨</div><h3>Automatic icons</h3><p>Pulls the highest-resolution manifest or apple-touch icon, with a clean lettered fallback when a site has none.</p></div>
-      <div class="card"><div class="ico">🧭</div><h3>Scope confinement</h3><p>Real PWA behaviour: links that leave the app's scope open in your system browser instead of hijacking the window.</p></div>
-      <div class="card"><div class="ico">🪟</div><h3>Native window identity</h3><p>Each app gets its own icon in the dock and Alt-Tab via <code>StartupWMClass</code>, installed through the XDG launcher portal.</p></div>
-      <div class="card"><div class="ico">🛡️</div><h3>Per-app controls</h3><p>Custom user agent, ad-blocking content filters, zoom and injected CSS — configured per web app.</p></div>
-      <div class="card"><div class="ico">🎬</div><h3>Full site compatibility</h3><p>Bundled Chromium (CEF) rendering means DRM and Chrome-only sites just work.</p></div>
+      <div class="card"><div class="ico">🚀</div><h3>One-click templates</h3><p>A curated catalog of 50+ popular apps — Gmail, Teams, Spotify, WhatsApp and more — added in a single click.</p></div>
+      <div class="card"><div class="ico">🔑</div><h3>Shared logins</h3><p>Group apps to a single profile and sign in once. Pick from your existing browser profiles by name.</p></div>
+      <div class="card"><div class="ico">🪟</div><h3>Native window &amp; identity</h3><p>Each app gets its own libadwaita window, dock icon and Alt-Tab entry — not a browser tab.</p></div>
+      <div class="card"><div class="ico">🔔</div><h3>Sticky notifications</h3><p>Desktop notifications show with the app's name and icon and stay in the GNOME notification list.</p></div>
+      <div class="card"><div class="ico">🔗</div><h3>Default handlers</h3><p>Make a web app your default for email, calendar or calls — even Teams/Zoom deep links that have no Linux app.</p></div>
+      <div class="card"><div class="ico">🎨</div><h3>Automatic icons</h3><p>Crisp logos from the manifest, an online icon search, or your own file. Always a clean icon.</p></div>
     </div>
   </section>
 
   <section class="wrap">
-    <span class="eyebrow">Comparison</span>
-    <h2>Why it beats the COSMIC original</h2>
-    <table>
-      <tr><th>Capability</th><th>Quick Web Apps (COSMIC)</th><th>GNOME Quick Web Apps</th></tr>
-      <tr><td>UI toolkit</td><td>libcosmic (iced)</td><td class="win">GTK4 + libadwaita</td></tr>
-      <tr><td>Setup</td><td>Type everything manually</td><td class="win">Paste URL → autofill</td></tr>
-      <tr><td>Icons</td><td>Pick from Papirus</td><td class="win">Auto-downloaded</td></tr>
-      <tr><td>Navigation</td><td>Plain browser window</td><td class="win">Scope-confined</td></tr>
-      <tr><td>Per-app config</td><td>Basic</td><td class="win">UA · adblock · zoom · CSS</td></tr>
-    </table>
+    <div class="split">
+      <div>
+        <span class="eyebrow" style="text-align:left;display:block">Templates</span>
+        <h2>Add your favourites in seconds</h2>
+        <p>No need to hunt for URLs or icons. Open the template gallery, click an app, choose a
+        login profile and you're done — perfect for the web-only services Linux desktops are missing.</p>
+      </div>
+      <img src="screenshots/templates.png" alt="The Add from Template gallery of popular web apps" />
+    </div>
   </section>
 
-  <section class="wrap">
-    <span class="eyebrow">Roadmap</span>
-    <h2>Where we're headed</h2>
-    <div class="roadmap">
-      <div class="phase"><b>Phase 1 — Core &amp; Manager</b><span>Data model, JSON storage, launcher install, GTK4 manager with create/edit/delete.</span></div>
-      <div class="phase"><b>Phase 2 — Differentiators</b><span>PWA manifest autofill, auto-icon download, scope confinement, per-app UA and adblock.</span></div>
-      <div class="phase"><b>Phase 3 — Native shell</b><span>CEF off-screen rendering inside a libadwaita window with a real header bar.</span></div>
-      <div class="phase"><b>Phase 4 — Polish</b><span>GNOME Shell search provider, import from COSMIC / Linux Mint, Flathub release.</span></div>
+  <section class="install" id="install">
+    <div class="wrap">
+      <span class="eyebrow">Install</span>
+      <h2>Up and running in one command</h2>
+      <div class="codecards">
+        <div class="codecard">
+          <h3>❄️ NixOS / Nix</h3>
+<pre><span class="c"># try it</span>
+nix run github:olafkfreund/gnome-quick-web-apps
+
+<span class="c"># install</span>
+nix profile install \
+  github:olafkfreund/gnome-quick-web-apps</pre>
+        </div>
+        <div class="codecard">
+          <h3>📦 Flatpak</h3>
+<pre><span class="c"># build &amp; install locally</span>
+flatpak-builder --user --install \
+  --force-clean build \
+  build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml</pre>
+        </div>
+      </div>
     </div>
   </section>
 
   <footer>
     <div class="wrap">
-      <p>GPL-3.0 · Built with Rust, GTK4 &amp; libadwaita · Inspired by <a href="https://github.com/cosmic-utils/web-apps">cosmic-utils/web-apps</a></p>
+      <p>Free software under the GPL-3.0 · Built with Rust, GTK4 &amp; libadwaita</p>
+      <p style="margin-top:8px">
+        <a href="https://github.com/olafkfreund/gnome-quick-web-apps">GitHub</a> ·
+        <a href="https://github.com/olafkfreund/gnome-quick-web-apps/issues">Issues</a>
+      </p>
     </div>
   </footer>
 </body>
