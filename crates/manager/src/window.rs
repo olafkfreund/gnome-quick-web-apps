@@ -3,7 +3,7 @@
 
 use adw::prelude::*;
 use gtk::glib;
-use qwa_core::WebApp;
+use qwa_core::{launcher, WebApp};
 
 use crate::editor;
 
@@ -90,8 +90,13 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
             #[weak] container,
             #[weak] window,
             move |_| {
+                let to_remove = app.clone();
+                crate::runtime().spawn(async move {
+                    if let Err(e) = launcher::uninstall(&to_remove).await {
+                        tracing::error!("launcher uninstall failed for {}: {e}", to_remove.id);
+                    }
+                });
                 app.remove_local();
-                // TODO(#4): async launcher::uninstall(&app) via portal.
                 populate(&container, &window);
             }
         ));

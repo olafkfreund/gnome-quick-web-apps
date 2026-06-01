@@ -17,11 +17,26 @@ use ashpd::{
 
 use crate::{webapp::WebApp, APP_ID};
 
+const RUNNER_BIN: &str = "gnome-quick-web-apps-runner";
+
+/// Locate the runner binary: prefer one sitting next to the current
+/// executable (dev builds / Flatpak), else trust `$PATH`.
+fn runner_path() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sibling = dir.join(RUNNER_BIN);
+            if sibling.exists() {
+                return sibling.display().to_string();
+            }
+        }
+    }
+    RUNNER_BIN.to_string()
+}
+
 /// `Exec=` line for the generated `.desktop`. Points at the CEF runner
 /// binary with the web app id; the runner loads `apps/<id>.json` itself.
 fn exec_line(app: &WebApp) -> String {
-    // Resolved at install time to an absolute path when not on $PATH.
-    format!("gnome-quick-web-apps-runner {}", app.id)
+    format!("{} {}", runner_path(), app.id)
 }
 
 fn desktop_entry(app: &WebApp) -> String {

@@ -4,7 +4,7 @@
 
 use adw::prelude::*;
 use gtk::glib;
-use qwa_core::{icon, Category, WebApp};
+use qwa_core::{icon, launcher, Category, WebApp};
 
 /// Open the modal editor over `parent`; call `on_saved` after a successful
 /// save so the caller can refresh its list.
@@ -83,7 +83,7 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
             match app.save() {
                 Ok(()) => {
                     tracing::info!("created web app {}", app.id);
-                    // TODO(#2/#4): async launcher::install(&app, icon_bytes) via portal.
+                    install_launcher(&app);
                     on_saved();
                     window.close();
                 }
@@ -93,4 +93,24 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
     ));
 
     window.present();
+}
+
+/// Install the `.desktop` launcher via the portal on the background runtime.
+/// Fire-and-forget: the JSON config is already saved and the portal shows
+/// its own confirmation dialog; failures are logged.
+fn install_launcher(app: &WebApp) {
+    let Some(icon_path) = app.icon_path.clone() else {
+        tracing::warn!("no icon for {}, skipping launcher install", app.id);
+        return;
+    };
+    let Ok(bytes) = icon::read_bytes(&icon_path) else {
+        tracing::warn!("could not read icon {}", icon_path.display());
+        return;
+    };
+    let app = app.clone();
+    crate::runtime().spawn(async move {
+        if let Err(e) = launcher::install(&app, bytes).await {
+            tracing::error!("launcher install failed for {}: {e}", app.id);
+        }
+    });
 }

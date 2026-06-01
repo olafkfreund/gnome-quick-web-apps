@@ -7,8 +7,23 @@
 mod editor;
 mod window;
 
+use std::sync::OnceLock;
+
 use adw::prelude::*;
 use qwa_core::APP_ID;
+
+/// Shared background Tokio runtime for async portal calls (ashpd). GTK owns
+/// the main thread, so launcher install/uninstall run on these worker
+/// threads and report failures via tracing.
+pub fn runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("failed to start Tokio runtime")
+    })
+}
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
