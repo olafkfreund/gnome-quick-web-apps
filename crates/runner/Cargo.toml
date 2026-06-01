@@ -24,6 +24,8 @@ tracing-subscriber.workspace = true
 # Chromium Embedded Framework. Pinned major like cosmic-utils/web-apps.
 cef = { version = "145", features = ["linux-x11", "build-util"] }
 x11-dl = "2.21"
+# open off-scope links in the system browser
+open = "5"
 
 [features]
 default = ["linux-x11"]
