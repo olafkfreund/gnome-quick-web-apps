@@ -19,6 +19,32 @@
           wrapGAppsHook4
         ];
 
+        # System libraries the prebuilt CEF (libcef.so) links against. The
+        # nix cc-wrapper adds -L/-rpath for each, satisfying both link and
+        # runtime resolution from the nix store.
+        cefRuntimeLibs = with pkgs; [
+          nss
+          nspr
+          atk
+          at-spi2-atk
+          at-spi2-core
+          dbus
+          cups
+          expat
+          libgbm
+          libxkbcommon
+          alsa-lib
+          udev
+          libdrm
+          libx11
+          libxcomposite
+          libxdamage
+          libxext
+          libxfixes
+          libxrandr
+          libxcb
+        ];
+
         buildInputs = with pkgs; [
           gtk4
           libadwaita
@@ -28,7 +54,7 @@
           gdk-pixbuf
           graphene
           openssl
-        ];
+        ] ++ cefRuntimeLibs;
 
         devTools = with pkgs; [
           rustc
@@ -42,6 +68,10 @@
         devShells.default = pkgs.mkShell {
           inherit nativeBuildInputs buildInputs;
           packages = devTools;
+
+          # GNU ld resolves libcef.so's NEEDED transitive deps at link time via
+          # LD_LIBRARY_PATH (native fallback); it also satisfies them at runtime.
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (buildInputs ++ cefRuntimeLibs);
 
           shellHook = ''
             echo "GNOME Quick Web Apps dev shell"

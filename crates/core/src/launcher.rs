@@ -35,8 +35,14 @@ fn runner_path() -> String {
 
 /// `Exec=` line for the generated `.desktop`. Points at the CEF runner
 /// binary with the web app id; the runner loads `apps/<id>.json` itself.
+/// When a deployed CEF runtime is found, prefix `LD_LIBRARY_PATH` so the
+/// runner can load `libcef.so` (mirrors the upstream launcher).
 fn exec_line(app: &WebApp) -> String {
-    format!("{} {}", runner_path(), app.id)
+    let runner = runner_path();
+    match crate::cef_dir() {
+        Some(cef) => format!("env LD_LIBRARY_PATH={} {} {}", cef.display(), runner, app.id),
+        None => format!("{} {}", runner, app.id),
+    }
 }
 
 fn desktop_entry(app: &WebApp) -> String {
