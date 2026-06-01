@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # Build the installable Flatpak bundle in the GNOME SDK.
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-47
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: gnome-quick-web-apps-x86_64.flatpak
+          manifest-path: build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
+          cache-key: flatpak-release-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: gnome-quick-web-apps-x86_64.flatpak
+
+  # Generate SBOMs + checksums and publish the GitHub Release.
+  release:
+    needs: flatpak
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-bundle
+
+      # Software Bill of Materials of the source tree (catalogs Cargo.lock and
+      # all dependencies) for supply-chain / security review.
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: gnome-quick-web-apps.spdx.json
+      - name: SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: gnome-quick-web-apps.cyclonedx.json
+
+      - name: Checksums
+        run: |
+          sha256sum \
+            gnome-quick-web-apps-x86_64.flatpak \
+            gnome-quick-web-apps.spdx.json \
+            gnome-quick-web-apps.cyclonedx.json \
+            > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            gnome-quick-web-apps-x86_64.flatpak
+            gnome-quick-web-apps.spdx.json
+            gnome-quick-web-apps.cyclonedx.json
+            SHA256SUMS.txt
+          body: |
+            ## GNOME Quick Web Apps ${{ github.ref_name }}
+
+            Turn any website into a native GNOME app.
+
+            ### Install
+            - **NixOS / Nix:** `nix profile install github:olafkfreund/gnome-quick-web-apps`
+            - **Flatpak:** download `gnome-quick-web-apps-x86_64.flatpak` below, then
+              `flatpak install --user gnome-quick-web-apps-x86_64.flatpak`
+
+            ### Security review
+            - `SHA256SUMS.txt` — checksums for every asset (verify with `sha256sum -c`).
+            - `*.spdx.json` / `*.cyclonedx.json` — Software Bill of Materials (full dependency tree).
+            - Rendering engine: CEF 145.0.28 (Chromium 145), pinned by sha256 in the Flatpak/Nix manifests.
+
+            > Built with [Claude Code](https://claude.com/claude-code) under human review and supervision.
