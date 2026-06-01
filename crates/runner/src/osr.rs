@@ -36,6 +36,8 @@ struct Shared {
     /// then it is None and navigation is unrestricted; afterwards anything that
     /// leaves this site is treated as external.
     home: RefCell<Option<String>>,
+    /// Current CEF zoom level (0 = 100%; each step ≈ ±20%).
+    zoom: std::cell::Cell<f64>,
 }
 
 /// Run `f` with the live browser host, if a browser exists.
@@ -45,6 +47,13 @@ fn with_host<F: FnOnce(BrowserHost)>(shared: &Shared, f: F) {
             f(host);
         }
     }
+}
+
+/// Apply a zoom level (clamped) to the browser and remember it.
+fn set_zoom(shared: &Shared, level: f64) {
+    let level = level.clamp(-3.0, 5.0);
+    shared.zoom.set(level);
+    with_host(shared, |h| h.set_zoom_level(level));
 }
 
 /// Map a GDK key to a Windows virtual-key code (what CEF expects). Printable
@@ -151,6 +160,25 @@ wrap_render_handler! {
                 rect.width = self.area.width().max(1);
                 rect.height = self.area.height().max(1);
             }
+        }
+
+        // Report the display scale so CEF renders at physical resolution
+        // (crisp on HiDPI / scaled displays); view_rect stays logical.
+        fn screen_info(
+            &self,
+            _browser: Option<&mut Browser>,
+            screen_info: Option<&mut ScreenInfo>,
+        ) -> i32 {
+            if let Some(info) = screen_info {
+                info.device_scale_factor = self.area.scale_factor().max(1) as f32;
+                info.depth = 24;
+                info.depth_per_component = 8;
+                let (w, h) = (self.area.width().max(1), self.area.height().max(1));
+                info.rect = Rect { x: 0, y: 0, width: w, height: h };
+                info.available_rect = Rect { x: 0, y: 0, width: w, height: h };
+                return 1;
+            }
+            0
         }
 
         fn on_paint(
@@ -489,7 +517,7 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
 
         {
             let shared = shared.clone();
-            area.set_draw_func(move |_area, cr, _w, _h| {
+            area.set_draw_func(move |_area, cr, w, h| {
                 if let Some(frame) = shared.frame.borrow().as_ref() {
                     let stride = frame.width * 4;
                     if let Ok(surface) = gtk::cairo::ImageSurface::create_for_data(
@@ -499,6 +527,12 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
                         frame.height,
                         stride,
                     ) {
+                        // The buffer is at physical resolution (logical * scale);
+                        // scale it down to fill the logical drawing area so the
+                        // image stays crisp on HiDPI displays.
+                        let sx = w as f64 / frame.width.max(1) as f64;
+                        let sy = h as f64 / frame.height.max(1) as f64;
+                        cr.scale(sx, sy);
                         if cr.set_source_surface(&surface, 0.0, 0.0).is_ok() {
                             let _ = cr.paint();
                         }
@@ -544,6 +578,20 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
             area.connect_resize(move |_area, _w, _h| {
                 if let Some(browser) = shared.browser.borrow().as_ref() {
                     if let Some(host) = browser.host() {
+                        host.was_resized();
+                    }
+                }
+            });
+        }
+
+        // Re-query screen info (device scale) when the display scale changes,
+        // e.g. moving the window between monitors of different DPI.
+        {
+            let shared = shared.clone();
+            area.connect_scale_factor_notify(move |_area| {
+                if let Some(browser) = shared.browser.borrow().as_ref() {
+                    if let Some(host) = browser.host() {
+                        host.notify_screen_info_changed();
                         host.was_resized();
                     }
                 }
@@ -603,7 +651,15 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
         {
             let shared = shared.clone();
-            scroll.connect_scroll(move |_, dx, dy| {
+            scroll.connect_scroll(move |ctrl, dx, dy| {
+                // Ctrl + scroll = zoom, like a browser.
+                if ctrl
+                    .current_event_state()
+                    .contains(gtk::gdk::ModifierType::CONTROL_MASK)
+                {
+                    set_zoom(&shared, shared.zoom.get() - dy * 0.5);
+                    return gtk::glib::Propagation::Stop;
+                }
                 let (mx, my) = shared.mouse.get();
                 with_host(&shared, |h| {
                     h.send_mouse_wheel_event(
@@ -621,6 +677,23 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         {
             let shared = shared.clone();
             keys.connect_key_pressed(move |_, keyval, _code, state| {
+                // Ctrl +/=/-/0 = zoom in / out / reset (handled here, not sent).
+                if state.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+                    use gtk::gdk::Key;
+                    let z = shared.zoom.get();
+                    if keyval == Key::plus || keyval == Key::equal || keyval == Key::KP_Add {
+                        set_zoom(&shared, z + 0.5);
+                        return gtk::glib::Propagation::Stop;
+                    }
+                    if keyval == Key::minus || keyval == Key::KP_Subtract {
+                        set_zoom(&shared, z - 0.5);
+                        return gtk::glib::Propagation::Stop;
+                    }
+                    if keyval == Key::_0 || keyval == Key::KP_0 {
+                        set_zoom(&shared, 0.0);
+                        return gtk::glib::Propagation::Stop;
+                    }
+                }
                 let vk = vk_from_keyval(keyval);
                 let modifiers = cef_modifiers(state);
                 with_host(&shared, |h| {
