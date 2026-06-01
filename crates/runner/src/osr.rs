@@ -370,7 +370,14 @@ wrap_request_handler! {
                 Some(h) => h,
                 None => return 0,
             };
-            if !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home) {
+            // Only eject a *deliberate* top-level click that leaves the app's
+            // site. Automatic cross-domain redirects (SSO token hops like
+            // outlook -> login.microsoftonline -> login.live) are NOT gestures,
+            // so they stay in-window and sign-in completes here.
+            if user_gesture == 1
+                && is_redirect == 0
+                && !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home)
+            {
                 if let Err(e) = open::that(&url) {
                     tracing::warn!("failed to open external url {url}: {e}");
                 }

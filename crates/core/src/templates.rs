@@ -10,6 +10,9 @@ pub struct Template {
     pub category: Category,
     /// Iconify icon id, e.g. `logos:google-gmail`.
     pub icon: &'static str,
+    /// Default the app to opening off-host links in the system browser. Set
+    /// for mail/chat apps where links inside messages should leave the app.
+    pub external_links: bool,
 }
 
 const fn t(
@@ -23,6 +26,25 @@ const fn t(
         url,
         category,
         icon,
+        external_links: false,
+    }
+}
+
+/// A communication app (mail / chat): links inside messages should open in
+/// the system browser by default. The runner only diverts deliberate,
+/// off-host clicks, so multi-domain sign-in/SSO still completes in-window.
+const fn tc(
+    name: &'static str,
+    url: &'static str,
+    category: Category,
+    icon: &'static str,
+) -> Template {
+    Template {
+        name,
+        url,
+        category,
+        icon,
+        external_links: true,
     }
 }
 
@@ -31,7 +53,7 @@ pub fn all() -> Vec<Template> {
     use Category::*;
     vec![
         // Google
-        t(
+        tc(
             "Gmail",
             "https://mail.google.com",
             Network,
@@ -74,7 +96,7 @@ pub fn all() -> Vec<Template> {
             "logos:google-maps",
         ),
         // Microsoft
-        t(
+        tc(
             "Outlook",
             "https://outlook.office.com",
             Network,
@@ -99,37 +121,37 @@ pub fn all() -> Vec<Template> {
             "logos:microsoft-onedrive",
         ),
         // Communication
-        t(
+        tc(
             "WhatsApp",
             "https://web.whatsapp.com",
             Network,
             "logos:whatsapp-icon",
         ),
-        t(
+        tc(
             "Telegram",
             "https://web.telegram.org",
             Network,
             "logos:telegram",
         ),
-        t(
+        tc(
             "Discord",
             "https://discord.com/app",
             Network,
             "logos:discord-icon",
         ),
-        t(
+        tc(
             "Slack",
             "https://app.slack.com",
             Network,
             "logos:slack-icon",
         ),
-        t(
+        tc(
             "Messenger",
             "https://messenger.com",
             Network,
             "logos:messenger",
         ),
-        t(
+        tc(
             "Proton Mail",
             "https://mail.proton.me",
             Network,

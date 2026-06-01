@@ -161,6 +161,7 @@ fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_save
         let url = tpl.url.to_string();
         let category = tpl.category;
         let icon_id = tpl.icon.to_string();
+        let external_links = tpl.external_links;
         btn.connect_clicked(glib::clone!(
             #[weak]
             parent,
@@ -196,6 +197,7 @@ fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_save
                         let path = srx.recv().await.ok().flatten();
                         let mut app = WebApp::new(name.clone(), url.clone(), category);
                         app.icon_path = path;
+                        app.external_links_in_browser = external_links;
                         dialog.close();
                         editor::present(&parent, Some(app), false, move || (*on_saved)());
                     }
