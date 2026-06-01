@@ -218,16 +218,20 @@ wrap_life_span_handler! {
                 if crate::app::route_to_installed_app(&url) {
                     return 1;
                 }
+                let app = crate::app::current_app();
+                let external = app.as_ref().map(|a| a.external_links_in_browser).unwrap_or(false);
                 let home = crate::app::current_page_url(browser.as_deref_mut())
-                    .unwrap_or_else(|| {
-                        crate::app::current_app().map(|a| a.url).unwrap_or_default()
-                    });
-                if qwa_core::same_site(&url, &home) {
-                    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
-                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    .unwrap_or_else(|| app.map(|a| a.url).unwrap_or_default());
+
+                // Open externally only when opted in AND genuinely off-site;
+                // otherwise keep the popup target in this window (so logins and
+                // same-app pages work without spawning a browser tab).
+                if external && !qwa_core::same_site(&url, &home) {
+                    if let Err(e) = open::that(&url) {
+                        tracing::warn!("failed to open external url {url}: {e}");
                     }
-                } else if let Err(e) = open::that(&url) {
-                    tracing::warn!("failed to open external url {url}: {e}");
+                } else if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+                    frame.load_url(Some(&CefString::from(url.as_str())));
                 }
             }
             1 // cancel the popup
@@ -282,7 +286,7 @@ wrap_request_handler! {
     struct OsrRequestHandler {
         shared: Rc<Shared>,
         scope: Option<String>,
-        app_url: String,
+        external_in_browser: bool,
     }
 
     impl RequestHandler {
@@ -299,19 +303,23 @@ wrap_request_handler! {
             };
             let url = CefString::from(&request.url()).to_string();
 
-            // Until the app has settled on its home, allow everything (this is
-            // the initial load + its redirects, possibly across domains).
+            // A link to another installed web app always opens that app.
+            if crate::app::route_to_installed_app(&url) {
+                return 1;
+            }
+
+            // Diversion to the system browser is opt-in. Off by default so that
+            // multi-domain logins (e.g. Microsoft: outlook.cloud.microsoft ->
+            // login.microsoftonline.com -> login.live.com) stay in the window.
+            if !self.external_in_browser {
+                return 0;
+            }
+            // Until the app settles on its home, allow everything (initial load
+            // + redirects, possibly across domains).
             let home = match self.shared.home.borrow().clone() {
                 Some(h) => h,
                 None => return 0,
             };
-
-            // A link to another installed web app opens that app.
-            if crate::app::route_to_installed_app(&url) {
-                return 1;
-            }
-            // Anything that leaves the settled site opens in the system browser
-            // (this also catches Gmail's google.com/url -> external redirects).
             if !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home) {
                 if let Err(e) = open::that(&url) {
                     tracing::warn!("failed to open external url {url}: {e}");
@@ -364,10 +372,10 @@ wrap_client! {
         }
 
         fn request_handler(&self) -> Option<RequestHandler> {
-            let (scope, app_url) = crate::app::current_app()
-                .map(|a| (a.scope, a.url))
-                .unwrap_or((None, String::new()));
-            Some(OsrRequestHandler::new(self.shared.clone(), scope, app_url))
+            let (scope, external) = crate::app::current_app()
+                .map(|a| (a.scope, a.external_links_in_browser))
+                .unwrap_or((None, false));
+            Some(OsrRequestHandler::new(self.shared.clone(), scope, external))
         }
 
         fn load_handler(&self) -> Option<LoadHandler> {

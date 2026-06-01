@@ -92,6 +92,13 @@ pub fn present<F: Fn() + 'static>(
     icon_row.add_suffix(&search_icon_btn);
     icon_row.add_suffix(&choose_btn);
 
+    // Off by default so multi-domain logins (e.g. Microsoft) stay in-window.
+    let external_switch = adw::SwitchRow::builder()
+        .title("Open external links in browser")
+        .subtitle("Turn off if first-time login opens a browser tab")
+        .active(existing.as_ref().map(|a| a.external_links_in_browser).unwrap_or(false))
+        .build();
+
     // Pre-fill when editing.
     if let Some(app) = &existing {
         url_row.set_text(&app.url);
@@ -107,6 +114,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&cat_row);
     group.add(&profile_combo);
     group.add(&icon_row);
+    group.add(&external_switch);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
@@ -230,6 +238,7 @@ pub fn present<F: Fn() + 'static>(
         #[weak] name_row,
         #[weak] cat_row,
         #[weak] profile_combo,
+        #[weak] external_switch,
         #[strong] profile_values,
         #[strong] detected,
         #[strong] chosen_icon,
@@ -267,6 +276,7 @@ pub fn present<F: Fn() + 'static>(
                     a
                 }
             };
+            app.external_links_in_browser = external_switch.is_active();
 
             // Manifest-derived scope/theme + icon candidates (if detected).
             let mut candidates = match detected.borrow().as_ref() {

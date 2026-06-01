@@ -125,6 +125,11 @@ pub struct WebApp {
     pub profile: Option<String>,
     #[serde(default)]
     pub mobile: bool,
+    /// When true, deliberate navigation to a different site opens in the system
+    /// browser. Default false: everything (including multi-domain logins like
+    /// Microsoft's) stays in the app window.
+    #[serde(default)]
+    pub external_links_in_browser: bool,
     #[serde(default)]
     pub window: WindowSize,
     /// Apply the bundled content-filter (adblock) ruleset.
@@ -155,6 +160,7 @@ impl WebApp {
             user_agent: None,
             profile: None,
             mobile: false,
+            external_links_in_browser: false,
             window: WindowSize::default(),
             adblock: false,
         }
