@@ -1,39 +1,47 @@
-//! Create-web-app dialog with PWA manifest autofill (#6).
+//! Create / edit web-app dialog.
 //!
-//! Flow: the user pastes a URL and clicks the detect button. We fetch the
-//! site's Web App Manifest on the background Tokio runtime and, back on the
-//! GTK main thread, fill the name and stash scope / theme colour / icon
-//! candidates. On save we build the `WebApp`, download the best icon (or
-//! fall back to a lettered one) and install the launcher.
+//! Paste a URL and "Detect" to autofill name + icon candidates from the PWA
+//! manifest (#6). Icons: a chosen file wins; otherwise we download the best
+//! manifest/apple-touch icon, falling back to a favicon service and finally a
+//! generated lettered icon. Opening with `Some(app)` edits in place.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::glib;
+use gtk::{gio, glib};
 use qwa_core::manifest::SiteInfo;
 use qwa_core::{icon, launcher, Category, WebApp};
 
-/// Open the modal editor over `parent`; call `on_saved` after a successful
-/// save so the caller can refresh its list.
-pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) {
+/// Open the editor over `parent`. `existing` = None creates a new app; Some
+/// edits it in place. `on_saved` is called after a successful save.
+pub fn present<F: Fn() + 'static>(
+    parent: &adw::ApplicationWindow,
+    existing: Option<WebApp>,
+    on_saved: F,
+) {
+    let editing = existing.is_some();
     let window = adw::Window::builder()
-        .title("New Web App")
+        .title(if editing { "Edit Web App" } else { "New Web App" })
         .modal(true)
         .transient_for(parent)
         .default_width(480)
-        .default_height(380)
+        .default_height(440)
         .build();
 
     let header = adw::HeaderBar::new();
     let cancel = gtk::Button::with_label("Cancel");
-    let save = gtk::Button::with_label("Add");
+    let save = gtk::Button::with_label(if editing { "Save" } else { "Add" });
     save.add_css_class("suggested-action");
     header.pack_start(&cancel);
     header.pack_end(&save);
 
-    // Detected manifest data, shared between the detect handler and save.
     let detected: Rc<RefCell<Option<SiteInfo>>> = Rc::new(RefCell::new(None));
+    // The user's chosen icon file (starts from the existing app's icon).
+    let chosen_icon: Rc<RefCell<Option<PathBuf>>> =
+        Rc::new(RefCell::new(existing.as_ref().and_then(|a| a.icon_path.clone())));
+    let icon_picked = Rc::new(Cell::new(false));
 
     let url_row = adw::EntryRow::builder().title("URL").build();
     let detect_btn = gtk::Button::builder()
@@ -54,12 +62,30 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
         .title("Category")
         .model(&cat_model)
         .build();
-    cat_row.set_selected((Category::ALL.len() - 1) as u32); // default: Utility
+    cat_row.set_selected((Category::ALL.len() - 1) as u32);
+
+    // Icon row: preview + "Choose File…".
+    let icon_img = gtk::Image::builder().pixel_size(32).build();
+    set_icon_preview(&icon_img, chosen_icon.borrow().as_deref());
+    let choose_btn = gtk::Button::with_label("Choose File…");
+    let icon_row = adw::ActionRow::builder().title("Icon").build();
+    icon_row.add_prefix(&icon_img);
+    icon_row.add_suffix(&choose_btn);
+
+    // Pre-fill when editing.
+    if let Some(app) = &existing {
+        url_row.set_text(&app.url);
+        name_row.set_text(&app.name);
+        if let Some(idx) = Category::ALL.iter().position(|c| c == &app.category) {
+            cat_row.set_selected(idx as u32);
+        }
+    }
 
     let group = adw::PreferencesGroup::new();
     group.add(&url_row);
     group.add(&name_row);
     group.add(&cat_row);
+    group.add(&icon_row);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
@@ -69,13 +95,47 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
     content.append(&page);
     window.set_content(Some(&content));
 
-    cancel.connect_clicked(glib::clone!(
-        #[weak]
-        window,
-        move |_| window.close()
+    cancel.connect_clicked(glib::clone!(#[weak] window, move |_| window.close()));
+
+    // --- Choose an icon file. ---
+    choose_btn.connect_clicked(glib::clone!(
+        #[weak] window,
+        #[weak] icon_img,
+        #[strong] chosen_icon,
+        #[strong] icon_picked,
+        move |_| {
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some("Images"));
+            for p in ["*.png", "*.svg", "*.jpg", "*.jpeg", "*.ico", "*.webp"] {
+                filter.add_pattern(p);
+            }
+            let filters = gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&filter);
+
+            let dialog = gtk::FileDialog::builder()
+                .title("Choose Icon")
+                .filters(&filters)
+                .build();
+            dialog.open(
+                Some(&window),
+                gio::Cancellable::NONE,
+                glib::clone!(
+                    #[weak] icon_img,
+                    #[strong] chosen_icon,
+                    #[strong] icon_picked,
+                    move |res| {
+                        if let Some(path) = res.ok().and_then(|f| f.path()) {
+                            set_icon_preview(&icon_img, Some(&path));
+                            *chosen_icon.borrow_mut() = Some(path);
+                            icon_picked.set(true);
+                        }
+                    }
+                ),
+            );
+        }
     ));
 
-    // --- Detect: fetch the manifest on the runtime, fill the form on main. ---
+    // --- Detect manifest info. ---
     detect_btn.connect_clicked(glib::clone!(
         #[weak] url_row,
         #[weak] name_row,
@@ -97,24 +157,18 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
                 let _ = tx.send(qwa_core::manifest::detect(&url).await).await;
             });
 
-            // Strong clones live only for this short-lived local future.
             let name_row = name_row.clone();
             let detect_btn = detect_btn.clone();
             let spinner = spinner.clone();
             let detected = detected.clone();
             glib::spawn_future_local(async move {
-                if let Ok(result) = rx.recv().await {
-                    match result {
-                        Ok(info) => {
-                            if name_row.text().trim().is_empty() {
-                                if let Some(name) = &info.name {
-                                    name_row.set_text(name);
-                                }
-                            }
-                            *detected.borrow_mut() = Some(info);
+                if let Ok(Ok(info)) = rx.recv().await {
+                    if name_row.text().trim().is_empty() {
+                        if let Some(name) = &info.name {
+                            name_row.set_text(name);
                         }
-                        Err(e) => tracing::warn!("manifest detect failed: {e}"),
                     }
+                    *detected.borrow_mut() = Some(info);
                 }
                 spinner.stop();
                 detect_btn.set_sensitive(true);
@@ -122,17 +176,19 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
         }
     ));
 
-    // --- Save: build, persist, then download icon + install in background. ---
+    // --- Save. ---
+    let existing_for_save = existing.clone();
     save.connect_clicked(glib::clone!(
         #[weak] window,
         #[weak] url_row,
         #[weak] name_row,
         #[weak] cat_row,
         #[strong] detected,
+        #[strong] chosen_icon,
+        #[strong] icon_picked,
         move |_| {
             let url = url_row.text().to_string();
             let name = name_row.text().trim().to_string();
-
             if !is_http_url(&url) {
                 url_row.add_css_class("error");
                 return;
@@ -141,12 +197,22 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
                 name_row.add_css_class("error");
                 return;
             }
-
             let category = Category::from_index(cat_row.selected());
-            let mut app = WebApp::new(name, url, category);
 
-            // Apply anything we learned from the manifest.
-            let icon_urls = match detected.borrow().as_ref() {
+            // Build the app: keep id (and other fields) when editing.
+            let mut app = match &existing_for_save {
+                Some(a) => {
+                    let mut a = a.clone();
+                    a.name = name;
+                    a.url = url;
+                    a.category = category;
+                    a
+                }
+                None => WebApp::new(name, url, category),
+            };
+
+            // Manifest-derived scope/theme + icon candidates (if detected).
+            let mut candidates = match detected.borrow().as_ref() {
                 Some(info) => {
                     app.scope = info.scope.clone();
                     app.theme_color = info.theme_color.clone();
@@ -154,17 +220,24 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
                 }
                 None => Vec::new(),
             };
+            candidates.extend(icon::favicon_service_urls(&app.url));
 
-            // Guaranteed fallback icon, replaced by a downloaded one if possible.
-            if let Ok(path) = icon::generate_lettered(&app.id, &app.name) {
-                app.icon_path = Some(path);
+            app.icon_path = chosen_icon.borrow().clone();
+
+            // Auto-fetch an icon unless the user picked one. Always ensure a
+            // lettered fallback so the launcher install has something.
+            let auto = !icon_picked.get();
+            if app.icon_path.is_none() {
+                if let Ok(p) = icon::generate_lettered(&app.id, &app.name) {
+                    app.icon_path = Some(p);
+                }
             }
             if let Err(e) = app.save() {
                 tracing::error!("failed to save web app: {e}");
                 return;
             }
-            tracing::info!("created web app {}", app.id);
-            finalize_async(app, icon_urls);
+            tracing::info!("{} web app {}", if editing { "edited" } else { "created" }, app.id);
+            finalize_async(app, candidates, auto);
             on_saved();
             window.close();
         }
@@ -173,18 +246,25 @@ pub fn present<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) 
     window.present();
 }
 
+fn set_icon_preview(img: &gtk::Image, path: Option<&std::path::Path>) {
+    match path {
+        Some(p) if p.exists() => img.set_from_file(Some(p)),
+        _ => img.set_icon_name(Some("application-x-addon-symbolic")),
+    }
+}
+
 fn is_http_url(url: &str) -> bool {
     url::Url::parse(url)
         .map(|u| matches!(u.scheme(), "http" | "https"))
         .unwrap_or(false)
 }
 
-/// Background tail of save: try to download a better icon (persisting it),
-/// then install the launcher via the portal. Fire-and-forget with logging.
-fn finalize_async(mut app: WebApp, icon_urls: Vec<String>) {
+/// Background tail of save: optionally download a better icon, then (re)install
+/// the launcher via the portal.
+fn finalize_async(mut app: WebApp, candidates: Vec<String>, auto: bool) {
     crate::runtime().spawn(async move {
-        if !icon_urls.is_empty() {
-            match icon::download_best(&app.id, &icon_urls).await {
+        if auto && !candidates.is_empty() {
+            match icon::download_best(&app.id, &candidates).await {
                 Ok(path) => {
                     app.icon_path = Some(path);
                     let _ = app.save();
@@ -193,10 +273,7 @@ fn finalize_async(mut app: WebApp, icon_urls: Vec<String>) {
             }
         }
 
-        let bytes = app
-            .icon_path
-            .as_ref()
-            .and_then(|p| icon::read_bytes(p).ok());
+        let bytes = app.icon_path.as_ref().and_then(|p| icon::read_bytes(p).ok());
         let Some(bytes) = bytes else {
             tracing::warn!("no icon bytes for {}, skipping install", app.id);
             return;

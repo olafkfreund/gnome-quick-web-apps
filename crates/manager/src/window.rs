@@ -38,6 +38,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         move |_| {
             editor::present(
                 &window,
+                None,
                 glib::clone!(
                     #[weak] window,
                     #[weak] list_container,
@@ -79,6 +80,30 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
             .title(app.name.as_str())
             .subtitle(app.url.as_str())
             .build();
+
+        let edit = gtk::Button::builder()
+            .icon_name("document-edit-symbolic")
+            .valign(gtk::Align::Center)
+            .css_classes(["flat"])
+            .tooltip_text("Edit")
+            .build();
+        let app_for_edit = app.clone();
+        edit.connect_clicked(glib::clone!(
+            #[weak] container,
+            #[weak] window,
+            move |_| {
+                editor::present(
+                    &window,
+                    Some(app_for_edit.clone()),
+                    glib::clone!(
+                        #[weak] container,
+                        #[weak] window,
+                        move || populate(&container, &window)
+                    ),
+                );
+            }
+        ));
+        row.add_suffix(&edit);
 
         let delete = gtk::Button::builder()
             .icon_name("user-trash-symbolic")

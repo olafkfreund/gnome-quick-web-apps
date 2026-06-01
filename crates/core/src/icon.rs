@@ -10,6 +10,23 @@ use crate::paths;
 
 const MIN_SIZE: u32 = 48;
 
+/// Favicon-service URLs for a site, as a reliable fallback when the page has
+/// no usable manifest/apple-touch icon. Google's service returns a clean PNG
+/// at the requested size for almost any domain.
+pub fn favicon_service_urls(site_url: &str) -> Vec<String> {
+    let Some(host) = url::Url::parse(site_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+    else {
+        return Vec::new();
+    };
+    vec![
+        format!("https://www.google.com/s2/favicons?domain={host}&sz=256"),
+        format!("https://www.google.com/s2/favicons?domain={host}&sz=128"),
+        format!("https://icons.duckduckgo.com/ip3/{host}.ico"),
+    ]
+}
+
 /// Try each candidate URL in order; save the first decodable raster image
 /// (>= MIN_SIZE) as a PNG under `icons/<id>.png`. Returns the saved path.
 pub async fn download_best(id: &str, candidates: &[String]) -> Result<PathBuf> {
