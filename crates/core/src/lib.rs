@@ -89,15 +89,24 @@ pub fn is_in_scope(target: &str, scope: Option<&str>, app_url: &str) -> bool {
     }
 }
 
-fn host_of(url: &str) -> Option<String> {
-    url::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+/// Registrable domain (eTLD+1 heuristic: last two labels). Keeps a web app's
+/// sibling subdomains in scope — e.g. `mail.google.com` and
+/// `accounts.google.com` both reduce to `google.com`, so Google's login
+/// redirect stays inside the app window.
+fn registrable_domain(url: &str) -> Option<String> {
+    let host = url::Url::parse(url).ok()?.host_str()?.to_lowercase();
+    let host = host.trim_start_matches("www.");
+    let labels: Vec<&str> = host.split('.').collect();
+    Some(if labels.len() >= 2 {
+        labels[labels.len() - 2..].join(".")
+    } else {
+        host.to_string()
+    })
 }
 
 fn same_host(a: &str, b: &str) -> bool {
-    match (host_of(a), host_of(b)) {
-        (Some(a), Some(b)) => a.eq_ignore_ascii_case(&b),
+    match (registrable_domain(a), registrable_domain(b)) {
+        (Some(a), Some(b)) => a == b,
         _ => false,
     }
 }
@@ -123,6 +132,16 @@ mod scope_tests {
         assert!(is_in_scope("https://discord.com/channels/1", None, app));
         assert!(is_in_scope("https://www.discord.com/x", None, app)); // www-insensitive
         assert!(!is_in_scope("https://google.com", None, app));
+    }
+
+    #[test]
+    fn sibling_subdomains_share_scope() {
+        // A Gmail web app: the login redirect to accounts.google.com must
+        // count as in-scope so it doesn't get punted to the system browser.
+        let app = "https://mail.google.com/";
+        assert!(is_in_scope("https://accounts.google.com/signin", None, app));
+        assert!(is_in_scope("https://docs.google.com/x", None, app));
+        assert!(!is_in_scope("https://youtube.com/x", None, app));
     }
 
     #[test]
