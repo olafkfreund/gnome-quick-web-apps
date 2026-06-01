@@ -3,6 +3,7 @@ name = "gnome-quick-web-apps-runner"
 description = "CEF-based runner that opens a single web app in its own window"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true

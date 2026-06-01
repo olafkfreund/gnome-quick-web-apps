@@ -483,14 +483,14 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/cargo-platform/cargo-platform-0.3.3.crate",
-        "sha256": "dd0061da739915fae12ea00e16397555ed4371a6bb285431aab930f61b0aa4ba",
-        "dest": "cargo/vendor/cargo-platform-0.3.3"
+        "url": "https://static.crates.io/crates/cargo-platform/cargo-platform-0.3.2.crate",
+        "sha256": "87a0c0e6148f11f01f32650a2ea02d532b2ad4e81d8bd41e6e565b5adc5e6082",
+        "dest": "cargo/vendor/cargo-platform-0.3.2"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"dd0061da739915fae12ea00e16397555ed4371a6bb285431aab930f61b0aa4ba\", \"files\": {}}",
-        "dest": "cargo/vendor/cargo-platform-0.3.3",
+        "contents": "{\"package\": \"87a0c0e6148f11f01f32650a2ea02d532b2ad4e81d8bd41e6e565b5adc5e6082\", \"files\": {}}",
+        "dest": "cargo/vendor/cargo-platform-0.3.2",
         "dest-filename": ".cargo-checksum.json"
     },
     {

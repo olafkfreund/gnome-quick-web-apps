@@ -3,6 +3,7 @@ name = "gnome-quick-web-apps"
 description = "GTK4/libadwaita manager for creating and editing web apps"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
