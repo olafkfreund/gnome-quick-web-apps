@@ -154,6 +154,41 @@ wrap_life_span_handler! {
     }
 
     impl LifeSpanHandler {
+        #[allow(clippy::too_many_arguments)]
+        fn on_before_popup(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            _popup_id: i32,
+            target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: i32,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut i32>,
+        ) -> i32 {
+            // Never spawn a separate window. In-scope targets navigate the main
+            // window in place; off-scope targets open in the system browser.
+            let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+            if !url.is_empty() {
+                let (scope, app_url) = crate::app::current_app()
+                    .map(|a| (a.scope, a.url))
+                    .unwrap_or((None, String::new()));
+                if qwa_core::is_in_scope(&url, scope.as_deref(), &app_url) {
+                    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    }
+                } else if let Err(e) = open::that(&url) {
+                    tracing::warn!("failed to open external url {url}: {e}");
+                }
+            }
+            1 // cancel the popup
+        }
+
         fn on_after_created(&self, browser: Option<&mut Browser>) {
             if let Some(browser) = browser {
                 tracing::info!("osr browser created");
