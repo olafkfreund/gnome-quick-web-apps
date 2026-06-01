@@ -186,7 +186,7 @@ wrap_life_span_handler! {
             target_url: Option<&CefString>,
             _target_frame_name: Option<&CefString>,
             _target_disposition: WindowOpenDisposition,
-            _user_gesture: i32,
+            user_gesture: i32,
             _popup_features: Option<&PopupFeatures>,
             _window_info: Option<&mut WindowInfo>,
             _client: Option<&mut Option<Client>>,
@@ -194,8 +194,14 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut i32>,
         ) -> i32 {
-            // Never spawn a separate window. In-scope targets navigate the main
-            // window in place; off-scope targets open in the system browser.
+            // Never spawn a separate window. Popups NOT triggered by a user
+            // click are background preloads / ads / trackers (e.g. Gmail opens
+            // Meet/Drive/Tasks/Calendar on load) — block them silently.
+            if user_gesture == 0 {
+                return 1;
+            }
+            // User-initiated: in-scope navigates the main window in place;
+            // off-scope opens in the system browser.
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
             if !url.is_empty() {
                 let (scope, app_url) = crate::app::current_app()
