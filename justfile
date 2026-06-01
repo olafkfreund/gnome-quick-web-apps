@@ -17,9 +17,11 @@ manager:
 deploy-cef: build
     #!/usr/bin/env bash
     set -euo pipefail
-    out=$(find target -type d -path '*cef-dll-sys*/out/cef_linux_x86_64' | head -1)
-    test -n "$out" || { echo "CEF build output not found"; exit 1; }
+    rel=$(find target -type d -path '*cef-dll-sys*/out/cef_linux_x86_64' | head -1)
+    test -n "$rel" || { echo "CEF build output not found"; exit 1; }
+    out=$(cd "$rel" && pwd)   # absolute: a relative symlink target would dangle
     ln -sfn "$out" target/debug/cef
+    test -e target/debug/cef/libcef.so || { echo "libcef.so missing under $out"; exit 1; }
     echo "linked target/debug/cef -> $out"
 
 # Run a web app by id in the CEF window (create it in the manager first).

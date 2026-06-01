@@ -5,7 +5,6 @@
 use cef::*;
 use qwa_core::WebApp;
 
-pub mod simple_app;
 pub mod simple_handler;
 
 pub struct Library;
