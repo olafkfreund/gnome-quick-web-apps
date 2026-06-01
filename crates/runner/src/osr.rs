@@ -252,6 +252,29 @@ wrap_load_handler! {
     }
 }
 
+wrap_permission_handler! {
+    struct OsrPermissionHandler {}
+
+    impl PermissionHandler {
+        fn on_show_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            _prompt_id: u64,
+            _requesting_origin: Option<&CefString>,
+            _requested_permissions: u32,
+            callback: Option<&mut PermissionPromptCallback>,
+        ) -> i32 {
+            // Grant permission prompts (desktop notifications, etc.) — these are
+            // the user's own installed web apps. OSR has no prompt UI, so
+            // without this the request would simply be denied.
+            if let Some(callback) = callback {
+                callback.cont(PermissionRequestResult::ACCEPT);
+            }
+            1 // handled
+        }
+    }
+}
+
 wrap_client! {
     struct OsrClient {
         shared: Rc<Shared>,
@@ -279,6 +302,10 @@ wrap_client! {
 
         fn load_handler(&self) -> Option<LoadHandler> {
             Some(OsrLoadHandler::new(self.back.clone(), self.forward.clone()))
+        }
+
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(OsrPermissionHandler::new())
         }
     }
 }
