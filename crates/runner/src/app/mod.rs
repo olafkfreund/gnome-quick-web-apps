@@ -19,8 +19,17 @@ pub fn load_cef() -> Library {
 /// Load this runner's web app from `apps/<id>.json`. The id is the first
 /// non-flag argv entry (CEF may inject its own `--switches`).
 pub(crate) fn current_app() -> Option<WebApp> {
-    let id = std::env::args().skip(1).find(|a| !a.starts_with('-'))?;
+    // The id is a slug (no scheme); skip flags and URL args (e.g. mailto:).
+    let id = std::env::args()
+        .skip(1)
+        .find(|a| !a.starts_with('-') && !a.contains(':'))?;
     WebApp::load(&id).ok()
+}
+
+/// A `mailto:` (or other URL) argument passed by the system when this app is
+/// invoked as a scheme handler.
+pub(crate) fn url_arg() -> Option<String> {
+    std::env::args().skip(1).find(|a| a.starts_with("mailto:"))
 }
 
 /// If `target` belongs to a *different* installed web app, launch that app in

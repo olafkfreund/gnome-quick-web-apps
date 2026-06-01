@@ -106,6 +106,13 @@ pub fn present<F: Fn() + 'static>(
         .active(existing.as_ref().map(|a| a.external_links_in_browser).unwrap_or(false))
         .build();
 
+    // Only useful for known web mail providers (Gmail/Outlook/Proton/…).
+    let default_email_switch = adw::SwitchRow::builder()
+        .title("Use as default email app")
+        .subtitle("Handle mailto: links (web mail providers only)")
+        .active(existing.as_ref().map(|a| a.mailto.is_some()).unwrap_or(false))
+        .build();
+
     // Pre-fill when editing.
     if let Some(app) = &existing {
         url_row.set_text(&app.url);
@@ -122,6 +129,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&profile_combo);
     group.add(&icon_row);
     group.add(&external_switch);
+    group.add(&default_email_switch);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
@@ -247,6 +255,7 @@ pub fn present<F: Fn() + 'static>(
         #[weak] cat_row,
         #[weak] profile_combo,
         #[weak] external_switch,
+        #[weak] default_email_switch,
         #[strong] profile_values,
         #[strong] detected,
         #[strong] chosen_icon,
@@ -285,6 +294,11 @@ pub fn present<F: Fn() + 'static>(
                 }
             };
             app.external_links_in_browser = external_switch.is_active();
+            app.mailto = if default_email_switch.is_active() {
+                qwa_core::mailto::compose_template_for(&app.url)
+            } else {
+                None
+            };
 
             // Manifest-derived scope/theme + icon candidates (if detected).
             let mut candidates = match detected.borrow().as_ref() {
@@ -542,6 +556,11 @@ fn finalize_async(
         };
         if let Err(e) = launcher::install(&app, bytes).await {
             tracing::error!("launcher install failed for {}: {e}", app.id);
+            return;
+        }
+        // Register as the system default mailto handler if requested.
+        if app.mailto.is_some() {
+            launcher::set_as_default_mailto(&app);
         }
     });
 }

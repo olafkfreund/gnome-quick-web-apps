@@ -410,7 +410,11 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         .application_id(&format!("{}.{}", qwa_core::APP_ID, webapp.id))
         .build();
 
-    let url = webapp.url.clone();
+    // If launched as a mailto: handler, open the provider's compose URL.
+    let url = match (crate::app::url_arg(), &webapp.mailto) {
+        (Some(mailto), Some(template)) => qwa_core::mailto::expand(template, &mailto),
+        _ => webapp.url.clone(),
+    };
     let title = webapp.name.clone();
     let win_w = webapp.window.0 as i32;
     let win_h = webapp.window.1 as i32;

@@ -6,6 +6,7 @@
 
 pub mod icon;
 pub mod launcher;
+pub mod mailto;
 pub mod manifest;
 pub mod paths;
 pub mod profiles;

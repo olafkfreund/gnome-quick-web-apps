@@ -29,3 +29,6 @@ rand = "0.8"
 
 # rasterize SVG icons (Iconify search results, lettered fallback) to PNG
 resvg = "0.44"
+
+# percent-encode/decode for mailto -> compose URL translation
+urlencoding = "2"

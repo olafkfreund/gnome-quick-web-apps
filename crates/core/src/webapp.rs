@@ -130,6 +130,10 @@ pub struct WebApp {
     /// Microsoft's) stays in the app window.
     #[serde(default)]
     pub external_links_in_browser: bool,
+    /// When set, this app is the system `mailto:` handler. Value is the
+    /// provider compose-URL template; a clicked `mailto:` expands into it.
+    #[serde(default)]
+    pub mailto: Option<String>,
     #[serde(default)]
     pub window: WindowSize,
     /// Apply the bundled content-filter (adblock) ruleset.
@@ -161,6 +165,7 @@ impl WebApp {
             profile: None,
             mobile: false,
             external_links_in_browser: false,
+            mailto: None,
             window: WindowSize::default(),
             adblock: false,
         }
