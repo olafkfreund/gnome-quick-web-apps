@@ -49,7 +49,7 @@ modules:
     build-commands:
       # Lay out CEF the way cef-dll-sys' CEF_PATH expects: flattened
       # Release/ + Resources/, plus the archive.json it validates.
-      - mkdir -p cef && tar -xf cef.tar.bz2 -C cef --strip-components=1
+      # (CEF is extracted into cef/ by the archive source below.)
       - cp -r cef/Release/. cef/ && cp -r cef/Resources/. cef/
       - >-
         printf '%s'
@@ -71,9 +71,10 @@ modules:
     sources:
       - type: dir
         path: ../..
-      - type: file
+      - type: archive
         url: https://cef-builds.spotifycdn.com/cef_binary_145.0.28%2Bg51162e8%2Bchromium-145.0.7632.160_linux64_minimal.tar.bz2
         sha256: 065c7f7442f4f2917a95c3fde8052cb87e1e2f7ce962864c8325b12e52ec39f4
-        dest-filename: cef.tar.bz2
+        dest: cef
+        strip-components: 1
       # Offline cargo dependencies (generate with flatpak-cargo-generator.py).
       - cargo-sources.json
