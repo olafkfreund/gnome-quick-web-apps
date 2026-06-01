@@ -395,6 +395,16 @@ wrap_client! {
 /// Initialize CEF (off-screen) and run the GNOME window, pumping CEF from the
 /// GTK loop. Returns when the window is closed.
 pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
+    // Attribute Chromium's desktop notifications to THIS app's launcher.
+    // Chromium reads CHROME_DESKTOP for the org.freedesktop.Notifications
+    // `desktop-entry` hint, so GNOME shows them with the app's name/icon and
+    // keeps them in the notification list (sticky) instead of as "Chromium".
+    // Subprocesses inherit this, so it must be set before CEF starts.
+    std::env::set_var(
+        "CHROME_DESKTOP",
+        format!("{}.{}.desktop", qwa_core::APP_ID, webapp.id),
+    );
+
     let settings = crate::app::build_settings(&webapp);
 
     let mut app = OsrApp::new();
