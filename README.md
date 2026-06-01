@@ -13,13 +13,33 @@
 
   <br>
 
-  <img alt="Manage your web apps" src="resources/screenshots/manager.png" width="720"><br>
-  <em>Manage your web apps — each with its own icon, profile and dock identity.</em>
+  <img alt="Multiple web apps running as native GNOME windows" src="resources/screenshots/running-apps.png" width="860"><br>
+  <em>Your web apps run as real, separate GNOME windows — tile them, Alt-Tab between them, each with its own icon and session.</em>
 
   <br><br>
 
-  <img alt="Add from a curated template catalog" src="resources/screenshots/templates.png" width="560"><br>
-  <em>Add popular apps in one click from the built-in template catalog.</em>
+  <img alt="A web app rendering natively" src="resources/screenshots/app-window.png" width="860"><br>
+  <em>Crisp native rendering with a proper window — Google Docs here, indistinguishable from a desktop app.</em>
+
+  <br><br>
+
+  <img alt="Manage your web apps" src="resources/screenshots/manager.png" width="720"><br>
+  <em>Manage all your web apps in one place — each with its own icon, profile and dock identity.</em>
+
+  <br><br>
+
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img alt="Add from a curated template catalog" src="resources/screenshots/templates.png"><br>
+        <em>One-click templates for 50+ popular apps.</em>
+      </td>
+      <td align="center" width="50%">
+        <img alt="Editor with profiles and default-handler toggles" src="resources/screenshots/editor.png"><br>
+        <em>Per-app profiles, icons, and dynamic “default for…” toggles.</em>
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
