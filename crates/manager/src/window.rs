@@ -1,6 +1,8 @@
 //! Main manager window: header bar + a live list of installed web apps with
 //! create (header `+`) and per-row delete, refreshing on each change.
 
+use std::rc::Rc;
+
 use adw::prelude::*;
 use gtk::glib;
 use qwa_core::{launcher, WebApp};
@@ -14,6 +16,12 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .tooltip_text("New Web App")
         .build();
     header.pack_start(&new_button);
+
+    let templates_button = gtk::Button::builder()
+        .icon_name("view-app-grid-symbolic")
+        .tooltip_text("Add from Template")
+        .build();
+    header.pack_start(&templates_button);
 
     let list_container = gtk::Box::new(gtk::Orientation::Vertical, 0);
     list_container.set_vexpand(true);
@@ -39,6 +47,22 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
             editor::present(
                 &window,
                 None,
+                false,
+                glib::clone!(
+                    #[weak] window,
+                    #[weak] list_container,
+                    move || populate(&list_container, &window)
+                ),
+            );
+        }
+    ));
+
+    templates_button.connect_clicked(glib::clone!(
+        #[weak] window,
+        #[weak] list_container,
+        move |_| {
+            present_templates(
+                &window,
                 glib::clone!(
                     #[weak] window,
                     #[weak] list_container,
@@ -49,6 +73,110 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     ));
 
     window
+}
+
+/// Grid of curated templates; clicking one fetches its icon and opens the
+/// editor pre-filled so the user can pick a profile and Save.
+fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_saved: F) {
+    let on_saved = Rc::new(on_saved);
+
+    let dialog = adw::Window::builder()
+        .title("Add from Template")
+        .modal(true)
+        .transient_for(parent)
+        .default_width(580)
+        .default_height(620)
+        .build();
+    let header = adw::HeaderBar::new();
+    let flow = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .homogeneous(true)
+        .max_children_per_line(4)
+        .column_spacing(12)
+        .row_spacing(12)
+        .margin_top(12)
+        .margin_bottom(12)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    let scroller = gtk::ScrolledWindow::builder().vexpand(true).child(&flow).build();
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    content.append(&header);
+    content.append(&scroller);
+    dialog.set_content(Some(&content));
+
+    for tpl in qwa_core::templates::all() {
+        let img = gtk::Image::builder().pixel_size(48).build();
+        img.set_icon_name(Some("content-loading-symbolic"));
+        let label = gtk::Label::builder()
+            .label(tpl.name)
+            .wrap(true)
+            .max_width_chars(12)
+            .justify(gtk::Justification::Center)
+            .build();
+        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        vbox.set_width_request(96);
+        vbox.append(&img);
+        vbox.append(&label);
+        let btn = gtk::Button::builder().css_classes(["flat"]).child(&vbox).build();
+        flow.insert(&btn, -1);
+
+        // Thumbnail.
+        let (ttx, trx) = async_channel::bounded(1);
+        let icon_id = tpl.icon.to_string();
+        crate::runtime().spawn(async move {
+            let _ = ttx.send(qwa_core::icon::iconify_png(&icon_id, 48).await).await;
+        });
+        glib::spawn_future_local(glib::clone!(#[weak] img, async move {
+            if let Ok(Some(png)) = trx.recv().await {
+                let bytes = glib::Bytes::from(&png[..]);
+                if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
+                    img.set_paintable(Some(&tex));
+                }
+            }
+        }));
+
+        // Click: download icon (Iconify, favicon fallback) then open editor.
+        let name = tpl.name.to_string();
+        let url = tpl.url.to_string();
+        let category = tpl.category;
+        let icon_id = tpl.icon.to_string();
+        btn.connect_clicked(glib::clone!(
+            #[weak] parent,
+            #[weak] dialog,
+            #[strong] on_saved,
+            move |_| {
+                let (stx, srx) = async_channel::bounded(1);
+                let (name_c, url_c, icon_c) = (name.clone(), url.clone(), icon_id.clone());
+                crate::runtime().spawn(async move {
+                    let path = match qwa_core::icon::iconify_png(&icon_c, 256).await {
+                        Some(png) => qwa_core::icon::save_png(&name_c, &png),
+                        None => {
+                            let cands = qwa_core::icon::favicon_service_urls(&url_c);
+                            qwa_core::icon::download_best(&name_c, &cands).await.ok()
+                        }
+                    };
+                    let _ = stx.send(path).await;
+                });
+                glib::spawn_future_local(glib::clone!(
+                    #[weak] parent,
+                    #[weak] dialog,
+                    #[strong] on_saved,
+                    #[strong] name,
+                    #[strong] url,
+                    async move {
+                        let path = srx.recv().await.ok().flatten();
+                        let mut app = WebApp::new(name.clone(), url.clone(), category);
+                        app.icon_path = path;
+                        dialog.close();
+                        editor::present(&parent, Some(app), false, move || (*on_saved)());
+                    }
+                ));
+            }
+        ));
+    }
+
+    dialog.present();
 }
 
 /// Clear and rebuild the app list. Called on startup and after any change.
@@ -95,6 +223,7 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
                 editor::present(
                     &window,
                     Some(app_for_edit.clone()),
+                    true,
                     glib::clone!(
                         #[weak] container,
                         #[weak] window,

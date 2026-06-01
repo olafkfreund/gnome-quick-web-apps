@@ -18,10 +18,13 @@ use qwa_core::{icon, launcher, Category, WebApp};
 /// edits it in place. `on_saved` is called after a successful save.
 pub fn present<F: Fn() + 'static>(
     parent: &adw::ApplicationWindow,
-    existing: Option<WebApp>,
+    prefill: Option<WebApp>,
+    editing: bool,
     on_saved: F,
 ) {
-    let editing = existing.is_some();
+    // `prefill` pre-populates fields; `editing` true keeps the existing id
+    // (edit), false creates a new app (templates / blank new).
+    let existing = prefill;
     let window = adw::Window::builder()
         .title(if editing { "Edit Web App" } else { "New Web App" })
         .modal(true)
@@ -41,7 +44,11 @@ pub fn present<F: Fn() + 'static>(
     // The user's chosen icon file (starts from the existing app's icon).
     let chosen_icon: Rc<RefCell<Option<PathBuf>>> =
         Rc::new(RefCell::new(existing.as_ref().and_then(|a| a.icon_path.clone())));
-    let icon_picked = Rc::new(Cell::new(false));
+    // A pre-filled icon (template or edit) counts as chosen, so finalize won't
+    // overwrite it with an auto-downloaded favicon.
+    let icon_picked = Rc::new(Cell::new(
+        existing.as_ref().and_then(|a| a.icon_path.as_ref()).is_some(),
+    ));
 
     let url_row = adw::EntryRow::builder().title("URL").build();
     let detect_btn = gtk::Button::builder()
@@ -231,7 +238,8 @@ pub fn present<F: Fn() + 'static>(
     ));
 
     // --- Save. ---
-    let existing_for_save = existing.clone();
+    // When editing, keep the original (its id); for templates/new, start fresh.
+    let existing_for_save = if editing { existing.clone() } else { None };
     save.connect_clicked(glib::clone!(
         #[weak] window,
         #[weak] url_row,
