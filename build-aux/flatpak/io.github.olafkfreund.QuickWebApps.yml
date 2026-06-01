@@ -43,6 +43,10 @@ modules:
   - name: gnome-quick-web-apps
     buildsystem: simple
     build-options:
+      # libcef.so is huge; skip strip/debuginfo extraction (eu-elfcompress
+      # runs out of disk on it) and don't generate a separate debug package.
+      strip: false
+      no-debuginfo: true
       env:
         # cef-dll-sys uses a pre-provided CEF instead of downloading one.
         CEF_PATH: /run/build/gnome-quick-web-apps/cef
@@ -62,7 +66,9 @@ modules:
       - install -Dm755 target/release/gnome-quick-web-apps-runner /app/bin/gnome-quick-web-apps-runner
       - install -Dm755 target/release/gnome-quick-web-apps-runner-helper /app/bin/gnome-quick-web-apps-runner-helper
 
-      # Deploy the CEF runtime; cef_dir() finds it at /app/share/cef.
+      # Drop build-only and now-duplicated dirs (Release/Resources were
+      # flattened into cef/), then deploy only the runtime to /app/share/cef.
+      - rm -rf cef/Release cef/Resources cef/cmake cef/include cef/libcef_dll
       - mkdir -p /app/share/cef && cp -r cef/. /app/share/cef/
 
       - install -Dm644 data/io.github.olafkfreund.QuickWebApps.desktop /app/share/applications/io.github.olafkfreund.QuickWebApps.desktop
