@@ -208,6 +208,11 @@ wrap_life_span_handler! {
             //   external   -> open in the system browser.
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
             if !url.is_empty() {
+                // If the target is itself one of the user's installed web apps,
+                // open THAT app in its own window instead of here / the browser.
+                if crate::app::route_to_installed_app(&url) {
+                    return 1;
+                }
                 let home = crate::app::current_page_url(browser.as_deref_mut())
                     .unwrap_or_else(|| {
                         crate::app::current_app().map(|a| a.url).unwrap_or_default()

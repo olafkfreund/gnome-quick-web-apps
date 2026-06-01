@@ -34,14 +34,19 @@ wrap_request_handler! {
             // Redirects / programmatic navigation always stay in-window so
             // login/OAuth flows (mail.google.com -> accounts.google.com) work.
             let deliberate = user_gesture == 1 && is_redirect == 0;
-            if deliberate && !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home) {
-                if let Err(e) = open::that(&url) {
-                    tracing::warn!("failed to open external url {url}: {e}");
+            if deliberate {
+                // Route to another installed web app if the target is one.
+                if crate::app::route_to_installed_app(&url) {
+                    return 1;
                 }
-                1 // cancel in-app navigation; opened externally
-            } else {
-                0 // allow in-app
+                if !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home) {
+                    if let Err(e) = open::that(&url) {
+                        tracing::warn!("failed to open external url {url}: {e}");
+                    }
+                    return 1; // opened externally
+                }
             }
+            0 // allow in-app
         }
     }
 }

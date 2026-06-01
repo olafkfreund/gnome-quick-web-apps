@@ -113,6 +113,23 @@ fn same_host(a: &str, b: &str) -> bool {
     same_site(a, b)
 }
 
+/// True when two URLs have the same exact host (www-insensitive). Used to
+/// route a link to a *specific* installed web app — unlike `same_site`, this
+/// does NOT collapse subdomains, so docs/drive/calendar.google.com each match
+/// only their own app.
+pub fn host_eq(a: &str, b: &str) -> bool {
+    fn host(u: &str) -> Option<String> {
+        url::Url::parse(u)
+            .ok()?
+            .host_str()
+            .map(|h| h.trim_start_matches("www.").to_lowercase())
+    }
+    match (host(a), host(b)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
 /// True when two URLs share a registrable domain (e.g. `mail.google.com` and
 /// `contacts.google.com` are same-site). Used to decide whether a navigation
 /// or popup belongs to the running app or is genuinely external.

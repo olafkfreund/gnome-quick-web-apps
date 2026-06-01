@@ -24,6 +24,39 @@ pub(crate) fn current_app() -> Option<WebApp> {
     WebApp::load(&id).ok()
 }
 
+/// If `target` belongs to a *different* installed web app, launch that app in
+/// its own window (a fresh runner process) and return true. Matching is by
+/// exact host or the app's explicit scope, so each Google service routes to
+/// its own app rather than to a sibling. Returns false if nothing matches.
+pub(crate) fn route_to_installed_app(target: &str) -> bool {
+    let current = current_app().map(|a| a.id);
+    for app in WebApp::load_all() {
+        if Some(&app.id) == current.as_ref() {
+            continue;
+        }
+        let matches = qwa_core::host_eq(target, &app.url)
+            || app
+                .scope
+                .as_deref()
+                .is_some_and(|s| !s.is_empty() && target.starts_with(s));
+        if matches {
+            match std::env::current_exe()
+                .and_then(|exe| std::process::Command::new(exe).arg(&app.id).spawn())
+            {
+                Ok(_) => {
+                    tracing::info!("routed {target} -> installed app {}", app.id);
+                    return true;
+                }
+                Err(e) => {
+                    tracing::warn!("failed to launch installed app {}: {e}", app.id);
+                    return false;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// The URL the browser's main frame is currently showing. Reflects the live
 /// location after redirects (e.g. gmail.com -> mail.google.com), so scope
 /// decisions are made against where the app actually is.
