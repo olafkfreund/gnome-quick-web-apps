@@ -27,6 +27,11 @@ x11-dl = "2.21"
 # open off-scope links in the system browser
 open = "5"
 
+# native GNOME window shell hosting CEF's off-screen output (#11/#12).
+# cairo comes via gtk::cairo, so no separate cairo crate (avoids version skew).
+gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }
+adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
+
 [features]
 default = ["linux-x11"]
 linux-x11 = ["cef/linux-x11"]

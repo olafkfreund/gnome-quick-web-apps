@@ -6,6 +6,7 @@
 //! port (cefsimple), adapted to our JSON `WebApp` model.
 
 mod app;
+mod osr;
 
 fn main() -> Result<(), &'static str> {
     tracing_subscriber::fmt()

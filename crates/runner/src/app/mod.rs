@@ -45,17 +45,17 @@ pub fn run_main(main_args: &MainArgs, cmd_line: &CommandLine, sandbox_info: *mut
         return;
     };
 
-    let mut app = simple_app::SimpleApp::new();
-    let helper_path = qwa_core::helper_bin();
+    // Browser process: render CEF off-screen inside a native GNOME window.
+    crate::osr::run(main_args, sandbox_info, webapp);
+}
 
+/// Build CEF [`Settings`] for the browser process (off-screen rendering,
+/// per-app profile cache, user agent, deployed resource dirs).
+pub fn build_settings(webapp: &WebApp) -> Settings {
+    let helper_path = qwa_core::helper_bin();
     let root = qwa_core::paths::profile_dir(&webapp.id);
     let cache = root.join("cache");
-    let cache_path = CefString::from(cache.display().to_string().as_str());
-    let root_cache_path = CefString::from(root.display().to_string().as_str());
-    let user_agent = CefString::from(qwa_core::effective_ua(&webapp));
 
-    // Point CEF at the deployed runtime resources (icudtl.dat, *.pak, locales)
-    // when we can locate them next to libcef.so; otherwise rely on defaults.
     let (resources_dir_path, locales_dir_path) = match qwa_core::cef_dir() {
         Some(dir) => (
             CefString::from(dir.display().to_string().as_str()),
@@ -64,23 +64,15 @@ pub fn run_main(main_args: &MainArgs, cmd_line: &CommandLine, sandbox_info: *mut
         None => (CefString::default(), CefString::default()),
     };
 
-    let settings = Settings {
+    Settings {
         no_sandbox: 1,
+        windowless_rendering_enabled: 1,
         browser_subprocess_path: CefString::from(helper_path.as_str()),
-        root_cache_path,
-        cache_path,
-        user_agent,
+        root_cache_path: CefString::from(root.display().to_string().as_str()),
+        cache_path: CefString::from(cache.display().to_string().as_str()),
+        user_agent: CefString::from(qwa_core::effective_ua(webapp)),
         resources_dir_path,
         locales_dir_path,
         ..Default::default()
-    };
-
-    assert_eq!(
-        initialize(Some(main_args), Some(&settings), Some(&mut app), sandbox_info),
-        1
-    );
-
-    run_message_loop();
-
-    shutdown();
+    }
 }

@@ -202,7 +202,7 @@ wrap_client! {
 }
 
 wrap_request_handler! {
-    struct ScopeRequestHandler {
+    pub struct ScopeRequestHandler {
         scope: Option<String>,
         app_url: String,
     }
