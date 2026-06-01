@@ -10,6 +10,16 @@
     <a href="https://github.com/olafkfreund/gnome-quick-web-apps/issues">Issues</a> ·
     <a href="#roadmap">Roadmap</a>
   </p>
+
+  <br>
+
+  <img alt="Manage your web apps" src="resources/screenshots/manager.png" width="720"><br>
+  <em>Manage your web apps — each with its own icon, profile and dock identity.</em>
+
+  <br><br>
+
+  <img alt="Add from a curated template catalog" src="resources/screenshots/templates.png" width="560"><br>
+  <em>Add popular apps in one click from the built-in template catalog.</em>
 </div>
 
 ---
