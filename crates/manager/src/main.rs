@@ -4,6 +4,7 @@
 //! web apps and offers a "New Web App" action. The editor dialog, manifest
 //! autofill wiring and launcher install land on top of this shell.
 
+mod editor;
 mod window;
 
 use adw::prelude::*;

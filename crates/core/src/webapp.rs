@@ -57,6 +57,29 @@ impl Category {
         }
     }
 
+    /// Human-readable label for the editor dropdown.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Category::Audio => "Audio",
+            Category::AudioVideo => "Audio & Video",
+            Category::Video => "Video",
+            Category::Development => "Development",
+            Category::Education => "Education",
+            Category::Game => "Game",
+            Category::Graphics => "Graphics",
+            Category::Network => "Network",
+            Category::Office => "Office",
+            Category::Science => "Science",
+            Category::Settings => "Settings",
+            Category::System => "System",
+            Category::Utility => "Utility",
+        }
+    }
+
+    pub fn from_index(index: u32) -> Category {
+        Self::ALL.get(index as usize).copied().unwrap_or_default()
+    }
+
     pub const ALL: [Category; 13] = [
         Category::Audio,
         Category::AudioVideo,
@@ -105,6 +128,45 @@ pub struct WebApp {
 }
 
 impl WebApp {
+    /// Build a new web app from editor inputs, deriving a stable id with a
+    /// short random suffix so two apps on the same host don't collide.
+    pub fn new(name: String, url: String, category: Category) -> Self {
+        use rand::Rng;
+        let suffix: String = {
+            let mut rng = rand::thread_rng();
+            (0..4)
+                .map(|_| rng.gen_range(b'a'..=b'z') as char)
+                .collect()
+        };
+        let id = Self::slug_from_url(&url, &suffix);
+        WebApp {
+            id,
+            name,
+            url,
+            scope: None,
+            category,
+            icon_path: None,
+            theme_color: None,
+            user_agent: None,
+            mobile: false,
+            window: WindowSize::default(),
+            adblock: false,
+        }
+    }
+
+    /// Remove this app's JSON config, icon and profile directory from disk.
+    /// (Launcher uninstall via the portal is handled separately, async.)
+    pub fn remove_local(&self) {
+        let _ = std::fs::remove_file(self.config_path());
+        if let Some(icon) = &self.icon_path {
+            let _ = std::fs::remove_file(icon);
+        }
+        let profile = paths::profile_dir(&self.id);
+        if profile.exists() {
+            let _ = std::fs::remove_dir_all(profile);
+        }
+    }
+
     /// The X11/Wayland app id used for `StartupWMClass` so the window groups
     /// under its own icon in the dock and Alt-Tab.
     pub fn wm_class(&self) -> String {
