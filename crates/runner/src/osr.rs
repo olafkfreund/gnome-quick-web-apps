@@ -248,13 +248,21 @@ wrap_life_span_handler! {
                 }
                 let app = crate::app::current_app();
                 let external = app.as_ref().map(|a| a.external_links_in_browser).unwrap_or(false);
-                let home = crate::app::current_page_url(browser.as_deref_mut())
-                    .unwrap_or_else(|| app.map(|a| a.url).unwrap_or_default());
+                let scope = app.as_ref().and_then(|a| a.scope.clone());
+                let app_url = app.map(|a| a.url).unwrap_or_default();
+                let home = crate::app::current_page_url(browser.as_deref_mut()).unwrap_or(app_url);
 
-                // Open externally only when opted in AND genuinely off-site;
-                // otherwise keep the popup target in this window (so logins and
-                // same-app pages work without spawning a browser tab).
-                if external && !qwa_core::same_site(&url, &home) {
+                // A user-opened popup to a DIFFERENT host means "leave the app"
+                // (a link in an email, an off-site button). With external mode
+                // on, hand those to the system browser. We match on host, not
+                // registrable domain, so Gmail's same-domain link redirector
+                // (www.google.com/url?q=...) also leaves — while same-host
+                // pop-outs (compose, print) and in-scope pages stay in-window.
+                let same_app = qwa_core::host_eq(&url, &home)
+                    || scope
+                        .as_deref()
+                        .is_some_and(|s| qwa_core::is_in_scope(&url, Some(s), &home));
+                if external && !same_app {
                     if let Err(e) = open::that(&url) {
                         tracing::warn!("failed to open external url {url}: {e}");
                     }
