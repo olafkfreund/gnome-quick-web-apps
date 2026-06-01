@@ -26,7 +26,11 @@ pub fn present<F: Fn() + 'static>(
     // (edit), false creates a new app (templates / blank new).
     let existing = prefill;
     let window = adw::Window::builder()
-        .title(if editing { "Edit Web App" } else { "New Web App" })
+        .title(if editing {
+            "Edit Web App"
+        } else {
+            "New Web App"
+        })
         .modal(true)
         .transient_for(parent)
         .default_width(480)
@@ -42,12 +46,16 @@ pub fn present<F: Fn() + 'static>(
 
     let detected: Rc<RefCell<Option<SiteInfo>>> = Rc::new(RefCell::new(None));
     // The user's chosen icon file (starts from the existing app's icon).
-    let chosen_icon: Rc<RefCell<Option<PathBuf>>> =
-        Rc::new(RefCell::new(existing.as_ref().and_then(|a| a.icon_path.clone())));
+    let chosen_icon: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(
+        existing.as_ref().and_then(|a| a.icon_path.clone()),
+    ));
     // A pre-filled icon (template or edit) counts as chosen, so finalize won't
     // overwrite it with an auto-downloaded favicon.
     let icon_picked = Rc::new(Cell::new(
-        existing.as_ref().and_then(|a| a.icon_path.as_ref()).is_some(),
+        existing
+            .as_ref()
+            .and_then(|a| a.icon_path.as_ref())
+            .is_some(),
     ));
 
     let url_row = adw::EntryRow::builder().title("URL").build();
@@ -103,7 +111,12 @@ pub fn present<F: Fn() + 'static>(
     let external_switch = adw::SwitchRow::builder()
         .title("Open external links in browser")
         .subtitle("Turn off if first-time login opens a browser tab")
-        .active(existing.as_ref().map(|a| a.external_links_in_browser).unwrap_or(false))
+        .active(
+            existing
+                .as_ref()
+                .map(|a| a.external_links_in_browser)
+                .unwrap_or(false),
+        )
         .build();
 
     // "Set as default for…" toggles, rebuilt from the URL (email for web mail,
@@ -112,8 +125,10 @@ pub fn present<F: Fn() + 'static>(
         .title("Set as default for…")
         .build();
     let role_switches: Rc<RefCell<Vec<RoleSwitch>>> = Rc::new(RefCell::new(Vec::new()));
-    let existing_handlers: Vec<qwa_core::webapp::UrlHandler> =
-        existing.as_ref().map(|a| a.handlers.clone()).unwrap_or_default();
+    let existing_handlers: Vec<qwa_core::webapp::UrlHandler> = existing
+        .as_ref()
+        .map(|a| a.handlers.clone())
+        .unwrap_or_default();
 
     // Pre-fill when editing.
     if let Some(app) = &existing {
@@ -143,24 +158,45 @@ pub fn present<F: Fn() + 'static>(
 
     // Build the default-handler toggles from the current URL, and keep them in
     // sync as the URL changes.
-    rebuild_handler_rows(&handlers_group, &role_switches, &url_row.text(), &existing_handlers);
+    rebuild_handler_rows(
+        &handlers_group,
+        &role_switches,
+        &url_row.text(),
+        &existing_handlers,
+    );
     url_row.connect_changed(glib::clone!(
-        #[weak] handlers_group,
-        #[strong] role_switches,
-        #[strong] existing_handlers,
+        #[weak]
+        handlers_group,
+        #[strong]
+        role_switches,
+        #[strong]
+        existing_handlers,
         move |row| {
-            rebuild_handler_rows(&handlers_group, &role_switches, &row.text(), &existing_handlers);
+            rebuild_handler_rows(
+                &handlers_group,
+                &role_switches,
+                &row.text(),
+                &existing_handlers,
+            );
         }
     ));
 
-    cancel.connect_clicked(glib::clone!(#[weak] window, move |_| window.close()));
+    cancel.connect_clicked(glib::clone!(
+        #[weak]
+        window,
+        move |_| window.close()
+    ));
 
     // --- Choose an icon file. ---
     choose_btn.connect_clicked(glib::clone!(
-        #[weak] window,
-        #[weak] icon_img,
-        #[strong] chosen_icon,
-        #[strong] icon_picked,
+        #[weak]
+        window,
+        #[weak]
+        icon_img,
+        #[strong]
+        chosen_icon,
+        #[strong]
+        icon_picked,
         move |_| {
             let filter = gtk::FileFilter::new();
             filter.set_name(Some("Images"));
@@ -178,9 +214,12 @@ pub fn present<F: Fn() + 'static>(
                 Some(&window),
                 gio::Cancellable::NONE,
                 glib::clone!(
-                    #[weak] icon_img,
-                    #[strong] chosen_icon,
-                    #[strong] icon_picked,
+                    #[weak]
+                    icon_img,
+                    #[strong]
+                    chosen_icon,
+                    #[strong]
+                    icon_picked,
                     move |res| {
                         if let Some(path) = res.ok().and_then(|f| f.path()) {
                             set_icon_preview(&icon_img, Some(&path));
@@ -195,19 +234,27 @@ pub fn present<F: Fn() + 'static>(
 
     // --- Search icons online (Iconify). ---
     search_icon_btn.connect_clicked(glib::clone!(
-        #[weak] window,
-        #[weak] icon_img,
-        #[weak] name_row,
-        #[strong] chosen_icon,
-        #[strong] icon_picked,
+        #[weak]
+        window,
+        #[weak]
+        icon_img,
+        #[weak]
+        name_row,
+        #[strong]
+        chosen_icon,
+        #[strong]
+        icon_picked,
         move |_| {
             present_icon_search(
                 &window,
                 &name_row.text(),
                 glib::clone!(
-                    #[weak] icon_img,
-                    #[strong] chosen_icon,
-                    #[strong] icon_picked,
+                    #[weak]
+                    icon_img,
+                    #[strong]
+                    chosen_icon,
+                    #[strong]
+                    icon_picked,
                     move |path: PathBuf| {
                         set_icon_preview(&icon_img, Some(&path));
                         *chosen_icon.borrow_mut() = Some(path);
@@ -220,11 +267,16 @@ pub fn present<F: Fn() + 'static>(
 
     // --- Detect manifest info. ---
     detect_btn.connect_clicked(glib::clone!(
-        #[weak] url_row,
-        #[weak] name_row,
-        #[weak] detect_btn,
-        #[weak] spinner,
-        #[strong] detected,
+        #[weak]
+        url_row,
+        #[weak]
+        name_row,
+        #[weak]
+        detect_btn,
+        #[weak]
+        spinner,
+        #[strong]
+        detected,
         move |_| {
             let url = url_row.text().to_string();
             if !is_http_url(&url) {
@@ -263,17 +315,28 @@ pub fn present<F: Fn() + 'static>(
     // When editing, keep the original (its id); for templates/new, start fresh.
     let existing_for_save = if editing { existing.clone() } else { None };
     save.connect_clicked(glib::clone!(
-        #[weak] window,
-        #[weak] url_row,
-        #[weak] name_row,
-        #[weak] cat_row,
-        #[weak] profile_combo,
-        #[weak] external_switch,
-        #[strong] role_switches,
-        #[strong] profile_values,
-        #[strong] detected,
-        #[strong] chosen_icon,
-        #[strong] icon_picked,
+        #[weak]
+        window,
+        #[weak]
+        url_row,
+        #[weak]
+        name_row,
+        #[weak]
+        cat_row,
+        #[weak]
+        profile_combo,
+        #[weak]
+        external_switch,
+        #[strong]
+        role_switches,
+        #[strong]
+        profile_values,
+        #[strong]
+        detected,
+        #[strong]
+        chosen_icon,
+        #[strong]
+        icon_picked,
         move |_| {
             let url = url_row.text().to_string();
             let name = name_row.text().trim().to_string();
@@ -343,7 +406,11 @@ pub fn present<F: Fn() + 'static>(
                 tracing::error!("failed to save web app: {e}");
                 return;
             }
-            tracing::info!("{} web app {}", if editing { "edited" } else { "created" }, app.id);
+            tracing::info!(
+                "{} web app {}",
+                if editing { "edited" } else { "created" },
+                app.id
+            );
             finalize_async(app, candidates, auto, import_from.clone());
             on_saved();
             window.close();
@@ -355,11 +422,7 @@ pub fn present<F: Fn() + 'static>(
 
 /// Modal icon-search dialog: type a keyword, browse Iconify results, click one
 /// to set it as the app icon (downloaded + rasterized to PNG).
-fn present_icon_search<F: Fn(PathBuf) + 'static>(
-    parent: &adw::Window,
-    initial: &str,
-    on_pick: F,
-) {
+fn present_icon_search<F: Fn(PathBuf) + 'static>(parent: &adw::Window, initial: &str, on_pick: F) {
     let on_pick = Rc::new(on_pick);
 
     let dialog = adw::Window::builder()
@@ -387,7 +450,10 @@ fn present_icon_search<F: Fn(PathBuf) + 'static>(
         .margin_start(8)
         .margin_end(8)
         .build();
-    let scroller = gtk::ScrolledWindow::builder().vexpand(true).child(&flow).build();
+    let scroller = gtk::ScrolledWindow::builder()
+        .vexpand(true)
+        .child(&flow)
+        .build();
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.append(&header);
@@ -395,9 +461,12 @@ fn present_icon_search<F: Fn(PathBuf) + 'static>(
     dialog.set_content(Some(&content));
 
     let run_search = Rc::new(glib::clone!(
-        #[weak] flow,
-        #[weak] dialog,
-        #[strong] on_pick,
+        #[weak]
+        flow,
+        #[weak]
+        dialog,
+        #[strong]
+        on_pick,
         move |query: String| {
             while let Some(child) = flow.first_child() {
                 flow.remove(&child);
@@ -412,11 +481,16 @@ fn present_icon_search<F: Fn(PathBuf) + 'static>(
             });
 
             glib::spawn_future_local(glib::clone!(
-                #[weak] flow,
-                #[weak] dialog,
-                #[strong] on_pick,
+                #[weak]
+                flow,
+                #[weak]
+                dialog,
+                #[strong]
+                on_pick,
                 async move {
-                    let Ok(ids) = rx.recv().await else { return; };
+                    let Ok(ids) = rx.recv().await else {
+                        return;
+                    };
                     for id in ids {
                         let img = gtk::Image::builder().pixel_size(48).build();
                         img.set_icon_name(Some("content-loading-symbolic"));
@@ -433,19 +507,25 @@ fn present_icon_search<F: Fn(PathBuf) + 'static>(
                         crate::runtime().spawn(async move {
                             let _ = ttx.send(qwa_core::icon::iconify_png(&id_t, 48).await).await;
                         });
-                        glib::spawn_future_local(glib::clone!(#[weak] img, async move {
-                            if let Ok(Some(png)) = trx.recv().await {
-                                let bytes = glib::Bytes::from(&png[..]);
-                                if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
-                                    img.set_paintable(Some(&tex));
+                        glib::spawn_future_local(glib::clone!(
+                            #[weak]
+                            img,
+                            async move {
+                                if let Ok(Some(png)) = trx.recv().await {
+                                    let bytes = glib::Bytes::from(&png[..]);
+                                    if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
+                                        img.set_paintable(Some(&tex));
+                                    }
                                 }
                             }
-                        }));
+                        ));
 
                         // Selection: download at full size, save, hand back.
                         btn.connect_clicked(glib::clone!(
-                            #[weak] dialog,
-                            #[strong] on_pick,
+                            #[weak]
+                            dialog,
+                            #[strong]
+                            on_pick,
                             move |_| {
                                 let id_s = id.clone();
                                 let (stx, srx) = async_channel::bounded(1);
@@ -457,8 +537,10 @@ fn present_icon_search<F: Fn(PathBuf) + 'static>(
                                     let _ = stx.send(path).await;
                                 });
                                 glib::spawn_future_local(glib::clone!(
-                                    #[weak] dialog,
-                                    #[strong] on_pick,
+                                    #[weak]
+                                    dialog,
+                                    #[strong]
+                                    on_pick,
                                     async move {
                                         if let Ok(Some(path)) = srx.recv().await {
                                             (*on_pick)(path);
@@ -475,7 +557,8 @@ fn present_icon_search<F: Fn(PathBuf) + 'static>(
     ));
 
     search.connect_search_changed(glib::clone!(
-        #[strong] run_search,
+        #[strong]
+        run_search,
         move |entry| (*run_search)(entry.text().to_string())
     ));
 
@@ -567,7 +650,10 @@ fn finalize_async(
             }
         }
 
-        let bytes = app.icon_path.as_ref().and_then(|p| icon::read_bytes(p).ok());
+        let bytes = app
+            .icon_path
+            .as_ref()
+            .and_then(|p| icon::read_bytes(p).ok());
         let Some(bytes) = bytes else {
             tracing::warn!("no icon bytes for {}, skipping install", app.id);
             return;

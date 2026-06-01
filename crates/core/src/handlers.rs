@@ -89,7 +89,10 @@ fn translate_deeplink(scheme: &str, arg: &str) -> Option<String> {
         // spotify:track:ID -> open.spotify.com/track/ID
         "spotify" => {
             let path = rest.replace(':', "/");
-            Some(format!("https://open.spotify.com/{}", path.trim_start_matches('/')))
+            Some(format!(
+                "https://open.spotify.com/{}",
+                path.trim_start_matches('/')
+            ))
         }
         // zoommtg://zoom.us/join?confno=NN&pwd=XX -> zoom.us/wc/join/NN?pwd=XX
         "zoommtg" => {
@@ -107,7 +110,11 @@ fn translate_deeplink(scheme: &str, arg: &str) -> Option<String> {
             let (_, query) = rest.split_once('?')?;
             let p = query_pairs(query);
             let team = p.iter().find(|(k, _)| k == "team")?.1.clone();
-            let id = p.iter().find(|(k, _)| k == "id").map(|(_, v)| v.clone()).unwrap_or_default();
+            let id = p
+                .iter()
+                .find(|(k, _)| k == "id")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
             Some(format!("https://app.slack.com/client/{team}/{id}"))
         }
         // tg://resolve?domain=X -> web.telegram.org/k/#@X ; join?invite=H -> t.me/+H
@@ -129,7 +136,10 @@ fn translate_deeplink(scheme: &str, arg: &str) -> Option<String> {
 fn query_pairs(query: &str) -> Vec<(String, String)> {
     query
         .split('&')
-        .filter_map(|p| p.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+        .filter_map(|p| {
+            p.split_once('=')
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+        })
         .collect()
 }
 
@@ -139,8 +149,12 @@ mod tests {
 
     #[test]
     fn roles_depend_on_host() {
-        assert!(roles_for("https://mail.google.com").iter().any(|r| r.mime.ends_with("mailto")));
-        assert!(roles_for("https://teams.microsoft.com").iter().any(|r| r.mime.ends_with("msteams")));
+        assert!(roles_for("https://mail.google.com")
+            .iter()
+            .any(|r| r.mime.ends_with("mailto")));
+        assert!(roles_for("https://teams.microsoft.com")
+            .iter()
+            .any(|r| r.mime.ends_with("msteams")));
         // Google Drive is a default handler for nothing.
         assert!(roles_for("https://drive.google.com").is_empty());
     }
@@ -151,10 +165,14 @@ mod tests {
             expand("", "msteams:/l/meetup-join/19%3ameeting_abc"),
             "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc"
         );
-        assert_eq!(expand("", "spotify:track:4uLU6hMCjMI75M1A2tKUQC"),
-            "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC");
-        assert_eq!(expand("", "zoommtg://zoom.us/join?confno=123456789&pwd=xyz"),
-            "https://zoom.us/wc/join/123456789?pwd=xyz");
+        assert_eq!(
+            expand("", "spotify:track:4uLU6hMCjMI75M1A2tKUQC"),
+            "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"
+        );
+        assert_eq!(
+            expand("", "zoommtg://zoom.us/join?confno=123456789&pwd=xyz"),
+            "https://zoom.us/wc/join/123456789?pwd=xyz"
+        );
     }
 }
 

@@ -165,9 +165,7 @@ impl WebApp {
         use rand::Rng;
         let suffix: String = {
             let mut rng = rand::thread_rng();
-            (0..4)
-                .map(|_| rng.gen_range(b'a'..=b'z') as char)
-                .collect()
+            (0..4).map(|_| rng.gen_range(b'a'..=b'z') as char).collect()
         };
         let id = Self::slug_from_url(&url, &suffix);
         WebApp {
@@ -197,7 +195,13 @@ impl WebApp {
         }
         // Only remove a private (per-app) profile; never a shared one that
         // other apps may still be using.
-        if self.profile.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        if self
+            .profile
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
             let profile = paths::profile_dir(&self.id);
             if profile.exists() {
                 let _ = std::fs::remove_dir_all(profile);
@@ -291,7 +295,10 @@ mod tests {
         let a = WebApp::slug_from_url("https://chat.openai.com/c/x", "abcd");
         assert_eq!(a, "chat-openai-com-abcd");
         // Stable for the same inputs.
-        assert_eq!(a, WebApp::slug_from_url("https://chat.openai.com/c/x", "abcd"));
+        assert_eq!(
+            a,
+            WebApp::slug_from_url("https://chat.openai.com/c/x", "abcd")
+        );
         // No path separators or other unsafe characters.
         assert!(!a.contains('/') && !a.contains('.'));
     }
@@ -303,7 +310,11 @@ mod tests {
 
     #[test]
     fn new_derives_id_from_host_with_suffix() {
-        let app = WebApp::new("Discord".into(), "https://discord.com/app".into(), Category::Network);
+        let app = WebApp::new(
+            "Discord".into(),
+            "https://discord.com/app".into(),
+            Category::Network,
+        );
         assert!(app.id.starts_with("discord-com-"));
         // host slug + '-' + 4 random lowercase chars
         let suffix = app.id.rsplit('-').next().unwrap();
@@ -314,7 +325,11 @@ mod tests {
 
     #[test]
     fn json_round_trip_preserves_fields() {
-        let mut app = WebApp::new("Notion".into(), "https://notion.so".into(), Category::Office);
+        let mut app = WebApp::new(
+            "Notion".into(),
+            "https://notion.so".into(),
+            Category::Office,
+        );
         app.scope = Some("https://notion.so/".into());
         app.theme_color = Some("#000000".into());
         app.mobile = true;

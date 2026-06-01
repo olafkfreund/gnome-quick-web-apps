@@ -63,7 +63,11 @@ fn desktop_entry(app: &WebApp) -> String {
     e.push_str(&format!("StartupWMClass={}\n", app.wm_class()));
     e.push_str(&format!("Categories={};\n", app.category.freedesktop()));
     if !app.handlers.is_empty() {
-        let mimes: String = app.handlers.iter().map(|h| format!("{};", h.mime)).collect();
+        let mimes: String = app
+            .handlers
+            .iter()
+            .map(|h| format!("{};", h.mime))
+            .collect();
         e.push_str(&format!("MimeType={mimes}\n"));
     }
     e

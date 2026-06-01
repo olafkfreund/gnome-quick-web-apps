@@ -41,16 +41,20 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     populate(&list_container, &window);
 
     new_button.connect_clicked(glib::clone!(
-        #[weak] window,
-        #[weak] list_container,
+        #[weak]
+        window,
+        #[weak]
+        list_container,
         move |_| {
             editor::present(
                 &window,
                 None,
                 false,
                 glib::clone!(
-                    #[weak] window,
-                    #[weak] list_container,
+                    #[weak]
+                    window,
+                    #[weak]
+                    list_container,
                     move || populate(&list_container, &window)
                 ),
             );
@@ -58,14 +62,18 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     ));
 
     templates_button.connect_clicked(glib::clone!(
-        #[weak] window,
-        #[weak] list_container,
+        #[weak]
+        window,
+        #[weak]
+        list_container,
         move |_| {
             present_templates(
                 &window,
                 glib::clone!(
-                    #[weak] window,
-                    #[weak] list_container,
+                    #[weak]
+                    window,
+                    #[weak]
+                    list_container,
                     move || populate(&list_container, &window)
                 ),
             );
@@ -99,7 +107,10 @@ fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_save
         .margin_start(12)
         .margin_end(12)
         .build();
-    let scroller = gtk::ScrolledWindow::builder().vexpand(true).child(&flow).build();
+    let scroller = gtk::ScrolledWindow::builder()
+        .vexpand(true)
+        .child(&flow)
+        .build();
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.append(&header);
     content.append(&scroller);
@@ -118,23 +129,32 @@ fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_save
         vbox.set_width_request(96);
         vbox.append(&img);
         vbox.append(&label);
-        let btn = gtk::Button::builder().css_classes(["flat"]).child(&vbox).build();
+        let btn = gtk::Button::builder()
+            .css_classes(["flat"])
+            .child(&vbox)
+            .build();
         flow.insert(&btn, -1);
 
         // Thumbnail.
         let (ttx, trx) = async_channel::bounded(1);
         let icon_id = tpl.icon.to_string();
         crate::runtime().spawn(async move {
-            let _ = ttx.send(qwa_core::icon::iconify_png(&icon_id, 48).await).await;
+            let _ = ttx
+                .send(qwa_core::icon::iconify_png(&icon_id, 48).await)
+                .await;
         });
-        glib::spawn_future_local(glib::clone!(#[weak] img, async move {
-            if let Ok(Some(png)) = trx.recv().await {
-                let bytes = glib::Bytes::from(&png[..]);
-                if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
-                    img.set_paintable(Some(&tex));
+        glib::spawn_future_local(glib::clone!(
+            #[weak]
+            img,
+            async move {
+                if let Ok(Some(png)) = trx.recv().await {
+                    let bytes = glib::Bytes::from(&png[..]);
+                    if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
+                        img.set_paintable(Some(&tex));
+                    }
                 }
             }
-        }));
+        ));
 
         // Click: download icon (Iconify, favicon fallback) then open editor.
         let name = tpl.name.to_string();
@@ -142,9 +162,12 @@ fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_save
         let category = tpl.category;
         let icon_id = tpl.icon.to_string();
         btn.connect_clicked(glib::clone!(
-            #[weak] parent,
-            #[weak] dialog,
-            #[strong] on_saved,
+            #[weak]
+            parent,
+            #[weak]
+            dialog,
+            #[strong]
+            on_saved,
             move |_| {
                 let (stx, srx) = async_channel::bounded(1);
                 let (name_c, url_c, icon_c) = (name.clone(), url.clone(), icon_id.clone());
@@ -159,11 +182,16 @@ fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_save
                     let _ = stx.send(path).await;
                 });
                 glib::spawn_future_local(glib::clone!(
-                    #[weak] parent,
-                    #[weak] dialog,
-                    #[strong] on_saved,
-                    #[strong] name,
-                    #[strong] url,
+                    #[weak]
+                    parent,
+                    #[weak]
+                    dialog,
+                    #[strong]
+                    on_saved,
+                    #[strong]
+                    name,
+                    #[strong]
+                    url,
                     async move {
                         let path = srx.recv().await.ok().flatten();
                         let mut app = WebApp::new(name.clone(), url.clone(), category);
@@ -225,16 +253,20 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
             .build();
         let app_for_edit = app.clone();
         edit.connect_clicked(glib::clone!(
-            #[weak] container,
-            #[weak] window,
+            #[weak]
+            container,
+            #[weak]
+            window,
             move |_| {
                 editor::present(
                     &window,
                     Some(app_for_edit.clone()),
                     true,
                     glib::clone!(
-                        #[weak] container,
-                        #[weak] window,
+                        #[weak]
+                        container,
+                        #[weak]
+                        window,
                         move || populate(&container, &window)
                     ),
                 );
@@ -249,8 +281,10 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
             .tooltip_text("Remove")
             .build();
         delete.connect_clicked(glib::clone!(
-            #[weak] container,
-            #[weak] window,
+            #[weak]
+            container,
+            #[weak]
+            window,
             move |_| {
                 let dialog = adw::AlertDialog::new(
                     Some("Delete Web App?"),
@@ -268,8 +302,10 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
                 dialog.connect_response(
                     Some("delete"),
                     glib::clone!(
-                        #[weak] container,
-                        #[weak] window,
+                        #[weak]
+                        container,
+                        #[weak]
+                        window,
                         move |_, _| {
                             // Remove the .desktop launcher via the portal...
                             let to_remove = app.clone();

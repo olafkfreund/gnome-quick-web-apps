@@ -161,10 +161,22 @@ mod scope_tests {
     #[test]
     fn explicit_scope_prefix_matches() {
         let scope = Some("https://app.example.com/");
-        assert!(is_in_scope("https://app.example.com/inbox", scope, "https://app.example.com/"));
-        assert!(!is_in_scope("https://other.com/x", scope, "https://app.example.com/"));
+        assert!(is_in_scope(
+            "https://app.example.com/inbox",
+            scope,
+            "https://app.example.com/"
+        ));
+        assert!(!is_in_scope(
+            "https://other.com/x",
+            scope,
+            "https://app.example.com/"
+        ));
         // same host but outside the scope path is off-scope
-        assert!(!is_in_scope("https://app.example.com2/x", scope, "https://app.example.com/"));
+        assert!(!is_in_scope(
+            "https://app.example.com2/x",
+            scope,
+            "https://app.example.com/"
+        ));
     }
 
     #[test]
@@ -190,6 +202,10 @@ mod scope_tests {
         assert!(is_in_scope("about:blank", None, "https://x.com"));
         assert!(is_in_scope("data:text/html,hi", None, "https://x.com"));
         assert!(!is_in_scope("mailto:a@b.com", None, "https://x.com"));
-        assert!(!is_in_scope("tel:123", Some("https://x.com/"), "https://x.com"));
+        assert!(!is_in_scope(
+            "tel:123",
+            Some("https://x.com/"),
+            "https://x.com"
+        ));
     }
 }

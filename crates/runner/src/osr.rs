@@ -409,7 +409,12 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
 
     let mut app = OsrApp::new();
     assert_eq!(
-        initialize(Some(main_args), Some(&settings), Some(&mut app), sandbox_info),
+        initialize(
+            Some(main_args),
+            Some(&settings),
+            Some(&mut app),
+            sandbox_info
+        ),
         1,
         "CEF initialize failed"
     );
@@ -516,7 +521,8 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         window.present();
 
         // Create the off-screen browser bound to this drawing area.
-        let mut client = OsrClient::new(shared.clone(), area.clone(), back.clone(), forward.clone());
+        let mut client =
+            OsrClient::new(shared.clone(), area.clone(), back.clone(), forward.clone());
         let window_info = WindowInfo {
             windowless_rendering_enabled: 1,
             ..Default::default()

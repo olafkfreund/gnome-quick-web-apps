@@ -5,7 +5,6 @@
 use cef::*;
 use qwa_core::WebApp;
 
-
 pub struct Library;
 
 #[allow(dead_code)]

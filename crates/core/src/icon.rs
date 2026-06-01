@@ -46,7 +46,10 @@ pub async fn download_best(id: &str, candidates: &[String]) -> Result<PathBuf> {
             }
         }
     }
-    Err(anyhow!("no usable icon among {} candidates", candidates.len()))
+    Err(anyhow!(
+        "no usable icon among {} candidates",
+        candidates.len()
+    ))
 }
 
 /// Write a lettered fallback SVG (coloured circle + initial) for `name`.
@@ -101,7 +104,11 @@ pub async fn search_iconify(query: &str) -> Vec<String> {
     };
     json.get("icons")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
 

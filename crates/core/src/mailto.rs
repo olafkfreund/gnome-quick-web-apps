@@ -36,7 +36,9 @@ pub fn expand(template: &str, mailto: &str) -> String {
     let mut bcc = String::new();
     for pair in query.split('&') {
         if let Some((k, v)) = pair.split_once('=') {
-            let val = urlencoding::decode(v).map(|s| s.into_owned()).unwrap_or_default();
+            let val = urlencoding::decode(v)
+                .map(|s| s.into_owned())
+                .unwrap_or_default();
             match k {
                 "subject" => subject = val,
                 "body" => body = val,
@@ -47,7 +49,9 @@ pub fn expand(template: &str, mailto: &str) -> String {
         }
     }
 
-    let to = urlencoding::decode(to_raw).map(|s| s.into_owned()).unwrap_or_else(|_| to_raw.to_string());
+    let to = urlencoding::decode(to_raw)
+        .map(|s| s.into_owned())
+        .unwrap_or_else(|_| to_raw.to_string());
     let enc = |s: &str| urlencoding::encode(s).into_owned();
 
     template

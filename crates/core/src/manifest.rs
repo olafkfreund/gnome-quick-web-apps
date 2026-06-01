@@ -63,7 +63,9 @@ pub async fn detect(page_url: &str) -> Result<SiteInfo> {
     }
 
     if info.name.is_none() {
-        info.name = base.host_str().map(|h| h.trim_start_matches("www.").to_string());
+        info.name = base
+            .host_str()
+            .map(|h| h.trim_start_matches("www.").to_string());
     }
     Ok(info)
 }
@@ -132,11 +134,7 @@ fn merge_manifest(info: &mut SiteInfo, m: WebManifest, manifest_url: &Url) {
         .into_iter()
         .filter_map(|i| {
             let abs = manifest_url.join(&i.src).ok()?.to_string();
-            let area = i
-                .sizes
-                .as_deref()
-                .and_then(parse_size)
-                .unwrap_or(0);
+            let area = i.sizes.as_deref().and_then(parse_size).unwrap_or(0);
             Some((area, abs))
         })
         .collect();
