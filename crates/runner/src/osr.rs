@@ -29,6 +29,64 @@ struct Frame {
 struct Shared {
     frame: RefCell<Option<Frame>>,
     browser: RefCell<Option<Browser>>,
+    /// Last known pointer position (for wheel events, which carry a location).
+    mouse: std::cell::Cell<(i32, i32)>,
+}
+
+/// Run `f` with the live browser host, if a browser exists.
+fn with_host<F: FnOnce(BrowserHost)>(shared: &Shared, f: F) {
+    if let Some(browser) = shared.browser.borrow().as_ref() {
+        if let Some(host) = browser.host() {
+            f(host);
+        }
+    }
+}
+
+/// Map a GDK key to a Windows virtual-key code (what CEF expects). Printable
+/// keys fall back to their uppercase ASCII; named keys map explicitly.
+fn vk_from_keyval(k: gtk::gdk::Key) -> i32 {
+    use gtk::gdk::Key;
+    if k == Key::Return || k == Key::KP_Enter {
+        0x0D
+    } else if k == Key::BackSpace {
+        0x08
+    } else if k == Key::Tab {
+        0x09
+    } else if k == Key::Escape {
+        0x1B
+    } else if k == Key::Delete {
+        0x2E
+    } else if k == Key::Left {
+        0x25
+    } else if k == Key::Up {
+        0x26
+    } else if k == Key::Right {
+        0x27
+    } else if k == Key::Down {
+        0x28
+    } else if k == Key::Home {
+        0x24
+    } else if k == Key::End {
+        0x23
+    } else if k == Key::Page_Up {
+        0x21
+    } else if k == Key::Page_Down {
+        0x22
+    } else {
+        k.to_unicode().map(|c| c.to_ascii_uppercase() as i32).unwrap_or(0)
+    }
+}
+
+fn mouse_event(x: i32, y: i32) -> MouseEvent {
+    MouseEvent { x, y, modifiers: 0 }
+}
+
+fn map_button(gdk_button: u32) -> MouseButtonType {
+    match gdk_button {
+        2 => MouseButtonType::MIDDLE,
+        3 => MouseButtonType::RIGHT,
+        _ => MouseButtonType::LEFT,
+    }
 }
 
 wrap_app! {
@@ -208,6 +266,113 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
                 }
             });
         }
+
+        // --- Input forwarding (#11 it.2): mouse, scroll, keyboard, focus. ---
+        area.set_focusable(true);
+
+        let motion = gtk::EventControllerMotion::new();
+        {
+            let shared = shared.clone();
+            motion.connect_motion(move |_, x, y| {
+                shared.mouse.set((x as i32, y as i32));
+                with_host(&shared, |h| {
+                    h.send_mouse_move_event(Some(&mouse_event(x as i32, y as i32)), 0)
+                });
+            });
+        }
+        area.add_controller(motion);
+
+        let click = gtk::GestureClick::new();
+        click.set_button(0); // listen for all buttons
+        {
+            let shared = shared.clone();
+            let area = area.clone();
+            click.connect_pressed(move |gesture, n_press, x, y| {
+                area.grab_focus();
+                let button = map_button(gesture.current_button());
+                with_host(&shared, |h| {
+                    h.set_focus(1);
+                    h.send_mouse_click_event(
+                        Some(&mouse_event(x as i32, y as i32)),
+                        button,
+                        0,
+                        n_press,
+                    );
+                });
+            });
+        }
+        {
+            let shared = shared.clone();
+            click.connect_released(move |gesture, n_press, x, y| {
+                let button = map_button(gesture.current_button());
+                with_host(&shared, |h| {
+                    h.send_mouse_click_event(
+                        Some(&mouse_event(x as i32, y as i32)),
+                        button,
+                        1,
+                        n_press,
+                    );
+                });
+            });
+        }
+        area.add_controller(click);
+
+        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+        {
+            let shared = shared.clone();
+            scroll.connect_scroll(move |_, dx, dy| {
+                let (mx, my) = shared.mouse.get();
+                with_host(&shared, |h| {
+                    h.send_mouse_wheel_event(
+                        Some(&mouse_event(mx, my)),
+                        (-dx * 40.0) as i32,
+                        (-dy * 40.0) as i32,
+                    )
+                });
+                gtk::glib::Propagation::Stop
+            });
+        }
+        area.add_controller(scroll);
+
+        let keys = gtk::EventControllerKey::new();
+        {
+            let shared = shared.clone();
+            keys.connect_key_pressed(move |_, keyval, _code, _state| {
+                let vk = vk_from_keyval(keyval);
+                with_host(&shared, |h| {
+                    h.send_key_event(Some(&KeyEvent {
+                        type_: KeyEventType::RAWKEYDOWN,
+                        windows_key_code: vk,
+                        ..Default::default()
+                    }));
+                    if let Some(c) = keyval.to_unicode() {
+                        if !c.is_control() {
+                            h.send_key_event(Some(&KeyEvent {
+                                type_: KeyEventType::CHAR,
+                                character: c as u16,
+                                ..Default::default()
+                            }));
+                        }
+                    }
+                });
+                gtk::glib::Propagation::Proceed
+            });
+        }
+        {
+            let shared = shared.clone();
+            keys.connect_key_released(move |_, keyval, _code, _state| {
+                let vk = vk_from_keyval(keyval);
+                with_host(&shared, |h| {
+                    h.send_key_event(Some(&KeyEvent {
+                        type_: KeyEventType::KEYUP,
+                        windows_key_code: vk,
+                        ..Default::default()
+                    }))
+                });
+            });
+        }
+        area.add_controller(keys);
+        area.grab_focus();
 
         // Drive CEF's work from the GTK main loop (~60fps).
         gtk::glib::timeout_add_local(Duration::from_millis(16), || {
