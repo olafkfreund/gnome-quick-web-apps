@@ -72,9 +72,16 @@ pub fn present<F: Fn() + 'static>(
     // Icon row: preview + "Choose File…".
     let icon_img = gtk::Image::builder().pixel_size(32).build();
     set_icon_preview(&icon_img, chosen_icon.borrow().as_deref());
+    let search_icon_btn = gtk::Button::builder()
+        .icon_name("system-search-symbolic")
+        .valign(gtk::Align::Center)
+        .tooltip_text("Search icons online")
+        .build();
     let choose_btn = gtk::Button::with_label("Choose File…");
+    choose_btn.set_valign(gtk::Align::Center);
     let icon_row = adw::ActionRow::builder().title("Icon").build();
     icon_row.add_prefix(&icon_img);
+    icon_row.add_suffix(&search_icon_btn);
     icon_row.add_suffix(&choose_btn);
 
     // Pre-fill when editing.
@@ -138,6 +145,31 @@ pub fn present<F: Fn() + 'static>(
                             *chosen_icon.borrow_mut() = Some(path);
                             icon_picked.set(true);
                         }
+                    }
+                ),
+            );
+        }
+    ));
+
+    // --- Search icons online (Iconify). ---
+    search_icon_btn.connect_clicked(glib::clone!(
+        #[weak] window,
+        #[weak] icon_img,
+        #[weak] name_row,
+        #[strong] chosen_icon,
+        #[strong] icon_picked,
+        move |_| {
+            present_icon_search(
+                &window,
+                &name_row.text(),
+                glib::clone!(
+                    #[weak] icon_img,
+                    #[strong] chosen_icon,
+                    #[strong] icon_picked,
+                    move |path: PathBuf| {
+                        set_icon_preview(&icon_img, Some(&path));
+                        *chosen_icon.borrow_mut() = Some(path);
+                        icon_picked.set(true);
                     }
                 ),
             );
@@ -263,6 +295,138 @@ pub fn present<F: Fn() + 'static>(
     ));
 
     window.present();
+}
+
+/// Modal icon-search dialog: type a keyword, browse Iconify results, click one
+/// to set it as the app icon (downloaded + rasterized to PNG).
+fn present_icon_search<F: Fn(PathBuf) + 'static>(
+    parent: &adw::Window,
+    initial: &str,
+    on_pick: F,
+) {
+    let on_pick = Rc::new(on_pick);
+
+    let dialog = adw::Window::builder()
+        .title("Search Icons")
+        .modal(true)
+        .transient_for(parent)
+        .default_width(540)
+        .default_height(560)
+        .build();
+
+    let header = adw::HeaderBar::new();
+    let search = gtk::SearchEntry::new();
+    search.set_hexpand(true);
+    search.set_placeholder_text(Some("Search icons…"));
+    header.set_title_widget(Some(&search));
+
+    let flow = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .homogeneous(true)
+        .max_children_per_line(8)
+        .column_spacing(6)
+        .row_spacing(6)
+        .margin_top(8)
+        .margin_bottom(8)
+        .margin_start(8)
+        .margin_end(8)
+        .build();
+    let scroller = gtk::ScrolledWindow::builder().vexpand(true).child(&flow).build();
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    content.append(&header);
+    content.append(&scroller);
+    dialog.set_content(Some(&content));
+
+    let run_search = Rc::new(glib::clone!(
+        #[weak] flow,
+        #[weak] dialog,
+        #[strong] on_pick,
+        move |query: String| {
+            while let Some(child) = flow.first_child() {
+                flow.remove(&child);
+            }
+            if query.trim().len() < 2 {
+                return;
+            }
+
+            let (tx, rx) = async_channel::bounded(1);
+            crate::runtime().spawn(async move {
+                let _ = tx.send(qwa_core::icon::search_iconify(&query).await).await;
+            });
+
+            glib::spawn_future_local(glib::clone!(
+                #[weak] flow,
+                #[weak] dialog,
+                #[strong] on_pick,
+                async move {
+                    let Ok(ids) = rx.recv().await else { return; };
+                    for id in ids {
+                        let img = gtk::Image::builder().pixel_size(48).build();
+                        img.set_icon_name(Some("content-loading-symbolic"));
+                        let btn = gtk::Button::builder()
+                            .css_classes(["flat"])
+                            .tooltip_text(&id)
+                            .child(&img)
+                            .build();
+                        flow.insert(&btn, -1);
+
+                        // Thumbnail (rasterized PNG -> texture).
+                        let (ttx, trx) = async_channel::bounded(1);
+                        let id_t = id.clone();
+                        crate::runtime().spawn(async move {
+                            let _ = ttx.send(qwa_core::icon::iconify_png(&id_t, 48).await).await;
+                        });
+                        glib::spawn_future_local(glib::clone!(#[weak] img, async move {
+                            if let Ok(Some(png)) = trx.recv().await {
+                                let bytes = glib::Bytes::from(&png[..]);
+                                if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
+                                    img.set_paintable(Some(&tex));
+                                }
+                            }
+                        }));
+
+                        // Selection: download at full size, save, hand back.
+                        btn.connect_clicked(glib::clone!(
+                            #[weak] dialog,
+                            #[strong] on_pick,
+                            move |_| {
+                                let id_s = id.clone();
+                                let (stx, srx) = async_channel::bounded(1);
+                                crate::runtime().spawn(async move {
+                                    let path = match qwa_core::icon::iconify_png(&id_s, 256).await {
+                                        Some(png) => qwa_core::icon::save_png(&id_s, &png),
+                                        None => None,
+                                    };
+                                    let _ = stx.send(path).await;
+                                });
+                                glib::spawn_future_local(glib::clone!(
+                                    #[weak] dialog,
+                                    #[strong] on_pick,
+                                    async move {
+                                        if let Ok(Some(path)) = srx.recv().await {
+                                            (*on_pick)(path);
+                                            dialog.close();
+                                        }
+                                    }
+                                ));
+                            }
+                        ));
+                    }
+                }
+            ));
+        }
+    ));
+
+    search.connect_search_changed(glib::clone!(
+        #[strong] run_search,
+        move |entry| (*run_search)(entry.text().to_string())
+    ));
+
+    search.set_text(initial);
+    (*run_search)(initial.trim().to_string());
+
+    dialog.present();
 }
 
 fn set_icon_preview(img: &gtk::Image, path: Option<&std::path::Path>) {

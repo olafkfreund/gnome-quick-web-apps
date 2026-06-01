@@ -75,6 +75,71 @@ pub fn read_bytes(path: &Path) -> Result<Vec<u8>> {
     Ok(std::fs::read(path)?)
 }
 
+// --- Online icon search (Iconify) ---------------------------------------
+
+/// Search the free Iconify API for icons matching `query`. Returns icon ids
+/// like `mdi:email`, best matches first.
+pub async fn search_iconify(query: &str) -> Vec<String> {
+    let q = query.trim().replace(' ', "+");
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let url = format!("https://api.iconify.design/search?query={q}&limit=60");
+    let client = reqwest::Client::new();
+    let json: serde_json::Value = match client.get(&url).send().await {
+        Ok(r) => match r.json().await {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::warn!("iconify parse failed: {e}");
+                return Vec::new();
+            }
+        },
+        Err(e) => {
+            tracing::warn!("iconify search failed: {e}");
+            return Vec::new();
+        }
+    };
+    json.get("icons")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default()
+}
+
+/// Fetch an Iconify icon by id (`prefix:name`) and rasterize it to a PNG of
+/// `size`x`size`.
+pub async fn iconify_png(icon_id: &str, size: u32) -> Option<Vec<u8>> {
+    let path = icon_id.replacen(':', "/", 1); // mdi:email -> mdi/email
+    let url = format!("https://api.iconify.design/{path}.svg?height={size}");
+    let client = reqwest::Client::new();
+    let svg = client.get(&url).send().await.ok()?.bytes().await.ok()?;
+    rasterize_svg(&svg, size)
+}
+
+/// Render SVG bytes to a square PNG. Works for path-based icons (Iconify, our
+/// lettered fallback) — no system SVG loader (librsvg) required.
+pub fn rasterize_svg(svg: &[u8], size: u32) -> Option<Vec<u8>> {
+    let tree = resvg::usvg::Tree::from_data(svg, &resvg::usvg::Options::default()).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size)?;
+    let ts = tree.size();
+    let scale = (size as f32 / ts.width()).min(size as f32 / ts.height());
+    let tx = (size as f32 - ts.width() * scale) / 2.0;
+    let ty = (size as f32 - ts.height() * scale) / 2.0;
+    let transform = resvg::tiny_skia::Transform::from_scale(scale, scale).post_translate(tx, ty);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    pixmap.encode_png().ok()
+}
+
+/// Persist raw PNG bytes under `icons/<safe-name>.png`. Returns the path.
+pub fn save_png(name: &str, png: &[u8]) -> Option<PathBuf> {
+    let safe: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let out = paths::icons_dir().join(format!("{safe}.png"));
+    std::fs::write(&out, png).ok()?;
+    Some(out)
+}
+
 /// Deterministic pleasant colour derived from the app name.
 fn pick_color(seed: &str) -> &'static str {
     const PALETTE: [&str; 8] = [

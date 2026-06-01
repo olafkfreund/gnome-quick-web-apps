@@ -16,7 +16,7 @@ tracing.workspace = true
 url.workspace = true
 
 # PWA manifest + icon fetching
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 scraper = "0.20"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "webp"] }
 tokio = { workspace = true }
@@ -26,3 +26,6 @@ ashpd = { version = "0.9", default-features = false, features = ["tokio"] }
 
 # lettered fallback icon
 rand = "0.8"
+
+# rasterize SVG icons (Iconify search results, lettered fallback) to PNG
+resvg = "0.44"
