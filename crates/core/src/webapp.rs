@@ -179,15 +179,14 @@ impl WebApp {
 
     /// Write the app to `apps/<id>.json`.
     pub fn save(&self) -> anyhow::Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(self.config_path(), json)?;
+        std::fs::write(self.config_path(), self.to_json()?)?;
         Ok(())
     }
 
     /// Load a single app by id.
     pub fn load(id: &str) -> anyhow::Result<Self> {
         let data = std::fs::read_to_string(paths::app_config(id))?;
-        Ok(serde_json::from_str(&data)?)
+        Self::from_json(&data)
     }
 
     /// Enumerate every installed web app.
@@ -210,6 +209,16 @@ impl WebApp {
         apps
     }
 
+    /// Serialize to JSON (used by `save`, exposed for testing).
+    pub fn to_json(&self) -> anyhow::Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
+    }
+
+    /// Parse from JSON (used by `load`, exposed for testing).
+    pub fn from_json(data: &str) -> anyhow::Result<Self> {
+        Ok(serde_json::from_str(data)?)
+    }
+
     /// Derive a stable, filesystem-safe slug from a URL plus a short random
     /// suffix to avoid collisions between two apps on the same host.
     pub fn slug_from_url(url: &str, rand_suffix: &str) -> String {
@@ -222,5 +231,73 @@ impl WebApp {
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
             .collect();
         format!("{}-{}", base.trim_matches('-'), rand_suffix)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slug_is_filesystem_safe_and_stable() {
+        let a = WebApp::slug_from_url("https://chat.openai.com/c/x", "abcd");
+        assert_eq!(a, "chat-openai-com-abcd");
+        // Stable for the same inputs.
+        assert_eq!(a, WebApp::slug_from_url("https://chat.openai.com/c/x", "abcd"));
+        // No path separators or other unsafe characters.
+        assert!(!a.contains('/') && !a.contains('.'));
+    }
+
+    #[test]
+    fn slug_falls_back_when_url_unparseable() {
+        assert_eq!(WebApp::slug_from_url("not a url", "zzzz"), "webapp-zzzz");
+    }
+
+    #[test]
+    fn new_derives_id_from_host_with_suffix() {
+        let app = WebApp::new("Discord".into(), "https://discord.com/app".into(), Category::Network);
+        assert!(app.id.starts_with("discord-com-"));
+        // host slug + '-' + 4 random lowercase chars
+        let suffix = app.id.rsplit('-').next().unwrap();
+        assert_eq!(suffix.len(), 4);
+        assert!(suffix.chars().all(|c| c.is_ascii_lowercase()));
+        assert_eq!(app.wm_class(), format!("{}.{}", crate::APP_ID, app.id));
+    }
+
+    #[test]
+    fn json_round_trip_preserves_fields() {
+        let mut app = WebApp::new("Notion".into(), "https://notion.so".into(), Category::Office);
+        app.scope = Some("https://notion.so/".into());
+        app.theme_color = Some("#000000".into());
+        app.mobile = true;
+        app.adblock = true;
+
+        let json = app.to_json().unwrap();
+        let back = WebApp::from_json(&json).unwrap();
+
+        assert_eq!(back.id, app.id);
+        assert_eq!(back.name, app.name);
+        assert_eq!(back.url, app.url);
+        assert_eq!(back.scope, app.scope);
+        assert_eq!(back.theme_color, app.theme_color);
+        assert_eq!(back.category, app.category);
+        assert_eq!(back.mobile, app.mobile);
+        assert_eq!(back.adblock, app.adblock);
+    }
+
+    #[test]
+    fn category_index_round_trips() {
+        for (i, cat) in Category::ALL.iter().enumerate() {
+            assert_eq!(Category::from_index(i as u32), *cat);
+        }
+        // Out-of-range falls back to the default.
+        assert_eq!(Category::from_index(999), Category::default());
+    }
+
+    #[test]
+    fn category_freedesktop_values_are_valid_main_categories() {
+        assert_eq!(Category::AudioVideo.freedesktop(), "AudioVideo");
+        assert_eq!(Category::Network.freedesktop(), "Network");
+        assert_eq!(Category::Utility.label(), "Utility");
     }
 }

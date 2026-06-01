@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Quick Web Apps
+GenericName=Web App Manager
+Comment=Turn any website into a desktop app
+Exec=gnome-quick-web-apps
+Icon=io.github.olafkfreund.QuickWebApps
+Terminal=false
+Categories=GTK;Utility;
+Keywords=web;app;pwa;website;launcher;
+StartupNotify=true

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.olafkfreund.QuickWebApps</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+
+  <name>Quick Web Apps</name>
+  <summary>Turn any website into a desktop app</summary>
+
+  <description>
+    <p>
+      Quick Web Apps is a native GTK4 and libadwaita manager for the GNOME
+      desktop that turns websites into first-class applications. Paste a URL
+      and it detects the site's Web App Manifest, fills in the name and icon
+      for you, and installs a launcher into your app grid.
+    </p>
+    <p>Each web app runs in its own isolated window with its own profile and dock identity. Features include:</p>
+    <ul>
+      <li>PWA manifest auto-detection with automatic name, icon and theme</li>
+      <li>Automatic icon download with a clean lettered fallback</li>
+      <li>URL-scope confinement so off-scope links open in your browser</li>
+      <li>Per-app user agent, ad-blocking, zoom and custom CSS</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.olafkfreund.QuickWebApps.desktop</launchable>
+
+  <url type="homepage">https://olafkfreund.github.io/gnome-quick-web-apps/</url>
+  <url type="bugtracker">https://github.com/olafkfreund/gnome-quick-web-apps/issues</url>
+  <url type="vcs-browser">https://github.com/olafkfreund/gnome-quick-web-apps</url>
+
+  <developer id="io.github.olafkfreund">
+    <name>olafkfreund</name>
+  </developer>
+
+  <content_rating type="oars-1.1" />
+
+  <categories>
+    <category>Utility</category>
+    <category>Network</category>
+  </categories>
+
+  <keywords>
+    <keyword>web</keyword>
+    <keyword>pwa</keyword>
+    <keyword>launcher</keyword>
+  </keywords>
+
+  <releases>
+    <release version="0.1.0" date="2026-06-01">
+      <description>
+        <p>Initial development release: create web apps with manifest autofill, automatic icons, and app-grid launcher install.</p>
+      </description>
+    </release>
+  </releases>
+</component>
