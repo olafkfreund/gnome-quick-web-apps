@@ -64,6 +64,11 @@ pub fn present<F: Fn() + 'static>(
         .build();
     cat_row.set_selected((Category::ALL.len() - 1) as u32);
 
+    // Shared login profile: apps with the same name share cookies/logins.
+    let profile_row = adw::EntryRow::builder()
+        .title("Login profile (optional — share to sign in once)")
+        .build();
+
     // Icon row: preview + "Choose File…".
     let icon_img = gtk::Image::builder().pixel_size(32).build();
     set_icon_preview(&icon_img, chosen_icon.borrow().as_deref());
@@ -79,12 +84,16 @@ pub fn present<F: Fn() + 'static>(
         if let Some(idx) = Category::ALL.iter().position(|c| c == &app.category) {
             cat_row.set_selected(idx as u32);
         }
+        if let Some(profile) = &app.profile {
+            profile_row.set_text(profile);
+        }
     }
 
     let group = adw::PreferencesGroup::new();
     group.add(&url_row);
     group.add(&name_row);
     group.add(&cat_row);
+    group.add(&profile_row);
     group.add(&icon_row);
 
     let page = adw::PreferencesPage::new();
@@ -183,12 +192,17 @@ pub fn present<F: Fn() + 'static>(
         #[weak] url_row,
         #[weak] name_row,
         #[weak] cat_row,
+        #[weak] profile_row,
         #[strong] detected,
         #[strong] chosen_icon,
         #[strong] icon_picked,
         move |_| {
             let url = url_row.text().to_string();
             let name = name_row.text().trim().to_string();
+            let profile = {
+                let p = profile_row.text().trim().to_string();
+                if p.is_empty() { None } else { Some(p) }
+            };
             if !is_http_url(&url) {
                 url_row.add_css_class("error");
                 return;
@@ -206,9 +220,14 @@ pub fn present<F: Fn() + 'static>(
                     a.name = name;
                     a.url = url;
                     a.category = category;
+                    a.profile = profile;
                     a
                 }
-                None => WebApp::new(name, url, category),
+                None => {
+                    let mut a = WebApp::new(name, url, category);
+                    a.profile = profile;
+                    a
+                }
             };
 
             // Manifest-derived scope/theme + icon candidates (if detected).

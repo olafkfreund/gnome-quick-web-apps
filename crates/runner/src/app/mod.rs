@@ -93,7 +93,9 @@ pub fn run_main(main_args: &MainArgs, cmd_line: &CommandLine, sandbox_info: *mut
 /// per-app profile cache, user agent, deployed resource dirs).
 pub fn build_settings(webapp: &WebApp) -> Settings {
     let helper_path = qwa_core::helper_bin();
-    let root = qwa_core::paths::profile_dir(&webapp.id);
+    // Key the CEF profile on profile_key(): shared profile name if set (so
+    // apps sharing it share logins), else the per-app id.
+    let root = qwa_core::paths::profile_dir(webapp.profile_key());
     let cache = root.join("cache");
 
     let (resources_dir_path, locales_dir_path) = match qwa_core::cef_dir() {

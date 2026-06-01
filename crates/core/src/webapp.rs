@@ -118,6 +118,11 @@ pub struct WebApp {
     pub theme_color: Option<String>,
     /// Override the user agent (e.g. to request the mobile site).
     pub user_agent: Option<String>,
+    /// Shared session profile name. Apps with the same profile share cookies
+    /// and logins (e.g. set every Google app to `google` to sign in once).
+    /// `None`/empty = a private per-app profile keyed by `id`.
+    #[serde(default)]
+    pub profile: Option<String>,
     #[serde(default)]
     pub mobile: bool,
     #[serde(default)]
@@ -148,6 +153,7 @@ impl WebApp {
             icon_path: None,
             theme_color: None,
             user_agent: None,
+            profile: None,
             mobile: false,
             window: WindowSize::default(),
             adblock: false,
@@ -161,10 +167,24 @@ impl WebApp {
         if let Some(icon) = &self.icon_path {
             let _ = std::fs::remove_file(icon);
         }
-        let profile = paths::profile_dir(&self.id);
-        if profile.exists() {
-            let _ = std::fs::remove_dir_all(profile);
+        // Only remove a private (per-app) profile; never a shared one that
+        // other apps may still be using.
+        if self.profile.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            let profile = paths::profile_dir(&self.id);
+            if profile.exists() {
+                let _ = std::fs::remove_dir_all(profile);
+            }
         }
+    }
+
+    /// The session/cache key: the shared `profile` if set, else the app `id`
+    /// (a private per-app profile). Apps sharing a key share their login.
+    pub fn profile_key(&self) -> &str {
+        self.profile
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&self.id)
     }
 
     /// The X11/Wayland app id used for `StartupWMClass` so the window groups
