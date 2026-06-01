@@ -63,8 +63,10 @@
           clippy
           rustfmt
           just
+          patchelf # fix libcef.so's rpath for launches outside this shell
           xvfb-run # headless run-verification of the CEF runner
         ];
+        libPath = pkgs.lib.makeLibraryPath (buildInputs ++ cefRuntimeLibs);
       in
       {
         devShells.default = pkgs.mkShell {
@@ -72,8 +74,16 @@
           packages = devTools;
 
           # GNU ld resolves libcef.so's NEEDED transitive deps at link time via
-          # LD_LIBRARY_PATH (native fallback); it also satisfies them at runtime.
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (buildInputs ++ cefRuntimeLibs);
+          # LD_LIBRARY_PATH (native fallback); it also satisfies them inside the
+          # dev shell at runtime.
+          LD_LIBRARY_PATH = libPath;
+
+          # Bake a TRANSITIVE rpath (DT_RPATH via --disable-new-dtags) of the
+          # nix lib dirs into our binaries, so the prebuilt libcef.so's deps
+          # (nss, glib, atk, ...) resolve even when GNOME launches the app
+          # outside this shell. DT_RUNPATH would not work — it is not
+          # transitive to libcef's own dependencies.
+          RUSTFLAGS = "-C link-arg=-Wl,--disable-new-dtags -C link-arg=-Wl,-rpath,${libPath}";
 
           shellHook = ''
             echo "GNOME Quick Web Apps dev shell"

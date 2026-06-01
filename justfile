@@ -23,6 +23,13 @@ deploy-cef: build
     ln -sfn "$out" target/debug/cef
     test -e target/debug/cef/libcef.so || { echo "libcef.so missing under $out"; exit 1; }
     echo "linked target/debug/cef -> $out"
+    # NixOS: prebuilt libcef.so needs its FHS deps (nss, glib, atk, ...). The
+    # executable's rpath is NOT searched for libcef's transitive deps, so graft
+    # our binary's nix lib dirs onto libcef.so's own rpath (preserving $ORIGIN).
+    nixrp=$(patchelf --print-rpath target/debug/gnome-quick-web-apps-runner)
+    cefrp=$(patchelf --print-rpath "$out/libcef.so")
+    patchelf --force-rpath --set-rpath "$cefrp:$nixrp" "$out/libcef.so"
+    echo "patched libcef.so rpath"
 
 # Run a web app by id in the CEF window (create it in the manager first).
 run id: deploy-cef
