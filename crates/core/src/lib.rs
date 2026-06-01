@@ -4,6 +4,7 @@
 //! PWA manifest detection, icon handling and `.desktop` launcher install.
 //! Both the GTK4 `manager` and the CEF `runner` depend on it.
 
+pub mod handlers;
 pub mod icon;
 pub mod launcher;
 pub mod mailto;

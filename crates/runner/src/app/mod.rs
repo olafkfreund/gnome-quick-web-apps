@@ -26,10 +26,13 @@ pub(crate) fn current_app() -> Option<WebApp> {
     WebApp::load(&id).ok()
 }
 
-/// A `mailto:` (or other URL) argument passed by the system when this app is
-/// invoked as a scheme handler.
+/// A scheme URL argument (mailto:, webcal:, …) passed by the system when this
+/// app is invoked as a default handler. The app id has no `:`, so any
+/// non-flag arg containing `:` is the handled URL.
 pub(crate) fn url_arg() -> Option<String> {
-    std::env::args().skip(1).find(|a| a.starts_with("mailto:"))
+    std::env::args()
+        .skip(1)
+        .find(|a| !a.starts_with('-') && a.contains(':'))
 }
 
 /// If `target` belongs to a *different* installed web app, launch that app in

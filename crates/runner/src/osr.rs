@@ -410,11 +410,18 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         .application_id(&format!("{}.{}", qwa_core::APP_ID, webapp.id))
         .build();
 
-    // If launched as a mailto: handler, open the provider's compose URL.
-    let url = match (crate::app::url_arg(), &webapp.mailto) {
-        (Some(mailto), Some(template)) => qwa_core::mailto::expand(template, &mailto),
-        _ => webapp.url.clone(),
-    };
+    // If launched as a scheme handler (mailto:, webcal:, …), open the target
+    // URL the matching handler expands to; otherwise the app's home page.
+    let url = crate::app::url_arg()
+        .and_then(|arg| {
+            let scheme = arg.split(':').next().unwrap_or("").to_string();
+            webapp
+                .handlers
+                .iter()
+                .find(|h| h.scheme() == scheme)
+                .map(|h| qwa_core::handlers::expand(&h.template, &arg))
+        })
+        .unwrap_or_else(|| webapp.url.clone());
     let title = webapp.name.clone();
     let win_w = webapp.window.0 as i32;
     let win_h = webapp.window.1 as i32;

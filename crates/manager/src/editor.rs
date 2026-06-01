@@ -106,12 +106,14 @@ pub fn present<F: Fn() + 'static>(
         .active(existing.as_ref().map(|a| a.external_links_in_browser).unwrap_or(false))
         .build();
 
-    // Only useful for known web mail providers (Gmail/Outlook/Proton/…).
-    let default_email_switch = adw::SwitchRow::builder()
-        .title("Use as default email app")
-        .subtitle("Handle mailto: links (web mail providers only)")
-        .active(existing.as_ref().map(|a| a.mailto.is_some()).unwrap_or(false))
+    // "Set as default for…" toggles, rebuilt from the URL (email for web mail,
+    // calendar for web calendars, nothing otherwise).
+    let handlers_group = adw::PreferencesGroup::builder()
+        .title("Set as default for…")
         .build();
+    let role_switches: Rc<RefCell<Vec<RoleSwitch>>> = Rc::new(RefCell::new(Vec::new()));
+    let existing_handlers: Vec<qwa_core::webapp::UrlHandler> =
+        existing.as_ref().map(|a| a.handlers.clone()).unwrap_or_default();
 
     // Pre-fill when editing.
     if let Some(app) = &existing {
@@ -129,15 +131,27 @@ pub fn present<F: Fn() + 'static>(
     group.add(&profile_combo);
     group.add(&icon_row);
     group.add(&external_switch);
-    group.add(&default_email_switch);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
+    page.add(&handlers_group);
 
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.append(&header);
     content.append(&page);
     window.set_content(Some(&content));
+
+    // Build the default-handler toggles from the current URL, and keep them in
+    // sync as the URL changes.
+    rebuild_handler_rows(&handlers_group, &role_switches, &url_row.text(), &existing_handlers);
+    url_row.connect_changed(glib::clone!(
+        #[weak] handlers_group,
+        #[strong] role_switches,
+        #[strong] existing_handlers,
+        move |row| {
+            rebuild_handler_rows(&handlers_group, &role_switches, &row.text(), &existing_handlers);
+        }
+    ));
 
     cancel.connect_clicked(glib::clone!(#[weak] window, move |_| window.close()));
 
@@ -255,7 +269,7 @@ pub fn present<F: Fn() + 'static>(
         #[weak] cat_row,
         #[weak] profile_combo,
         #[weak] external_switch,
-        #[weak] default_email_switch,
+        #[strong] role_switches,
         #[strong] profile_values,
         #[strong] detected,
         #[strong] chosen_icon,
@@ -294,11 +308,15 @@ pub fn present<F: Fn() + 'static>(
                 }
             };
             app.external_links_in_browser = external_switch.is_active();
-            app.mailto = if default_email_switch.is_active() {
-                qwa_core::mailto::compose_template_for(&app.url)
-            } else {
-                None
-            };
+            app.handlers = role_switches
+                .borrow()
+                .iter()
+                .filter(|(_, _, sw)| sw.is_active())
+                .map(|(mime, template, _)| qwa_core::webapp::UrlHandler {
+                    mime: mime.clone(),
+                    template: template.clone(),
+                })
+                .collect();
 
             // Manifest-derived scope/theme + icon candidates (if detected).
             let mut candidates = match detected.borrow().as_ref() {
@@ -558,9 +576,39 @@ fn finalize_async(
             tracing::error!("launcher install failed for {}: {e}", app.id);
             return;
         }
-        // Register as the system default mailto handler if requested.
-        if app.mailto.is_some() {
-            launcher::set_as_default_mailto(&app);
+        // Register as the system default for any selected scheme handlers.
+        if !app.handlers.is_empty() {
+            launcher::set_as_default_handlers(&app);
         }
     });
+}
+
+/// (mime, template, switch) for one default-handler role currently shown.
+type RoleSwitch = (String, String, adw::SwitchRow);
+
+/// Rebuild the "Set as default for…" toggles for `url`. Hidden when the URL
+/// isn't a default handler for anything (e.g. Google Drive).
+fn rebuild_handler_rows(
+    group: &adw::PreferencesGroup,
+    switches: &Rc<RefCell<Vec<RoleSwitch>>>,
+    url: &str,
+    existing: &[qwa_core::webapp::UrlHandler],
+) {
+    for (_, _, sw) in switches.borrow().iter() {
+        group.remove(sw);
+    }
+    switches.borrow_mut().clear();
+
+    let roles = qwa_core::handlers::roles_for(url);
+    group.set_visible(!roles.is_empty());
+    for role in roles {
+        let active = existing.iter().any(|h| h.mime == role.mime);
+        let sw = adw::SwitchRow::builder()
+            .title(&role.label)
+            .subtitle(&role.subtitle)
+            .active(active)
+            .build();
+        group.add(&sw);
+        switches.borrow_mut().push((role.mime, role.template, sw));
+    }
 }

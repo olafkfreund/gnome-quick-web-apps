@@ -97,6 +97,23 @@ impl Category {
     ];
 }
 
+/// A registered URL-scheme handler (e.g. the system default email app).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UrlHandler {
+    /// Freedesktop mime, e.g. `x-scheme-handler/mailto`.
+    pub mime: String,
+    /// Target URL template; `{value}` (or mailto fields) is filled from the
+    /// incoming scheme URL.
+    pub template: String,
+}
+
+impl UrlHandler {
+    /// The bare scheme, e.g. `mailto` from `x-scheme-handler/mailto`.
+    pub fn scheme(&self) -> &str {
+        self.mime.rsplit('/').next().unwrap_or(&self.mime)
+    }
+}
+
 /// A single installed web application.
 ///
 /// `scope` powers the differentiator over Quick Web Apps: navigation that
@@ -130,10 +147,10 @@ pub struct WebApp {
     /// Microsoft's) stays in the app window.
     #[serde(default)]
     pub external_links_in_browser: bool,
-    /// When set, this app is the system `mailto:` handler. Value is the
-    /// provider compose-URL template; a clicked `mailto:` expands into it.
+    /// URL-scheme handlers this app is registered as the system default for
+    /// (e.g. mailto, webcal). Each carries the target URL template.
     #[serde(default)]
-    pub mailto: Option<String>,
+    pub handlers: Vec<UrlHandler>,
     #[serde(default)]
     pub window: WindowSize,
     /// Apply the bundled content-filter (adblock) ruleset.
@@ -165,7 +182,7 @@ impl WebApp {
             profile: None,
             mobile: false,
             external_links_in_browser: false,
-            mailto: None,
+            handlers: Vec::new(),
             window: WindowSize::default(),
             adblock: false,
         }

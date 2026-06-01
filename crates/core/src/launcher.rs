@@ -40,10 +40,10 @@ fn runner_path() -> String {
 fn exec_line(app: &WebApp) -> String {
     let runner = runner_path();
     // `%u` lets the system pass a URL (e.g. a clicked mailto:) to the runner.
-    let arg = if app.mailto.is_some() {
-        format!("{} %u", app.id)
-    } else {
+    let arg = if app.handlers.is_empty() {
         app.id.clone()
+    } else {
+        format!("{} %u", app.id)
     };
     match crate::cef_dir() {
         Some(cef) => format!("env LD_LIBRARY_PATH={} {} {}", cef.display(), runner, arg),
@@ -62,8 +62,9 @@ fn desktop_entry(app: &WebApp) -> String {
     e.push_str("Terminal=false\n");
     e.push_str(&format!("StartupWMClass={}\n", app.wm_class()));
     e.push_str(&format!("Categories={};\n", app.category.freedesktop()));
-    if app.mailto.is_some() {
-        e.push_str("MimeType=x-scheme-handler/mailto;\n");
+    if !app.handlers.is_empty() {
+        let mimes: String = app.handlers.iter().map(|h| format!("{};", h.mime)).collect();
+        e.push_str(&format!("MimeType={mimes}\n"));
     }
     e
 }
@@ -103,16 +104,19 @@ pub async fn install(app: &WebApp, icon_png: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-/// Register this app as the system default `mailto:` (email) handler.
-/// Best-effort via `xdg-mime`; runs after the launcher is installed.
-pub fn set_as_default_mailto(app: &WebApp) {
-    match std::process::Command::new("xdg-mime")
-        .args(["default", &launcher_filename(app), "x-scheme-handler/mailto"])
-        .status()
-    {
-        Ok(s) if s.success() => tracing::info!("set {} as default mailto handler", app.id),
-        Ok(s) => tracing::warn!("xdg-mime exited with {s}"),
-        Err(e) => tracing::warn!("xdg-mime failed: {e}"),
+/// Register this app as the system default for each of its registered scheme
+/// handlers. Best-effort via `xdg-mime`; runs after the launcher is installed.
+pub fn set_as_default_handlers(app: &WebApp) {
+    let file = launcher_filename(app);
+    for handler in &app.handlers {
+        match std::process::Command::new("xdg-mime")
+            .args(["default", &file, &handler.mime])
+            .status()
+        {
+            Ok(s) if s.success() => tracing::info!("{} -> default for {}", app.id, handler.mime),
+            Ok(s) => tracing::warn!("xdg-mime exited with {s}"),
+            Err(e) => tracing::warn!("xdg-mime failed: {e}"),
+        }
     }
 }
 

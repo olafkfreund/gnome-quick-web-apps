@@ -209,6 +209,14 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
             .subtitle(app.url.as_str())
             .build();
 
+        // App icon on the left for quick visual scanning.
+        let icon = gtk::Image::builder().pixel_size(32).build();
+        match app.icon_path.as_ref().filter(|p| p.exists()) {
+            Some(path) => icon.set_from_file(Some(path)),
+            None => icon.set_icon_name(Some("application-x-addon-symbolic")),
+        }
+        row.add_prefix(&icon);
+
         let edit = gtk::Button::builder()
             .icon_name("document-edit-symbolic")
             .valign(gtk::Align::Center)
