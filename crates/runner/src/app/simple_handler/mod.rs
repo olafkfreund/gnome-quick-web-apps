@@ -61,6 +61,7 @@ impl SimpleHandler {
     fn on_after_created(&mut self, browser: Option<&mut Browser>) {
         debug_assert_ne!(currently_on(ThreadId::UI), 0);
         let browser = browser.cloned().expect("Browser is None");
+        tracing::info!("browser created (total: {})", self.browser_list.len() + 1);
         self.browser_list.push(browser);
     }
 

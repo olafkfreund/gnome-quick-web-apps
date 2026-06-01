@@ -54,12 +54,24 @@ pub fn run_main(main_args: &MainArgs, cmd_line: &CommandLine, sandbox_info: *mut
     let root_cache_path = CefString::from(root.display().to_string().as_str());
     let user_agent = CefString::from(qwa_core::effective_ua(&webapp));
 
+    // Point CEF at the deployed runtime resources (icudtl.dat, *.pak, locales)
+    // when we can locate them next to libcef.so; otherwise rely on defaults.
+    let (resources_dir_path, locales_dir_path) = match qwa_core::cef_dir() {
+        Some(dir) => (
+            CefString::from(dir.display().to_string().as_str()),
+            CefString::from(dir.join("locales").display().to_string().as_str()),
+        ),
+        None => (CefString::default(), CefString::default()),
+    };
+
     let settings = Settings {
         no_sandbox: 1,
         browser_subprocess_path: CefString::from(helper_path.as_str()),
         root_cache_path,
         cache_path,
         user_agent,
+        resources_dir_path,
+        locales_dir_path,
         ..Default::default()
     };
 

@@ -62,6 +62,8 @@
           rust-analyzer
           clippy
           rustfmt
+          just
+          xvfb-run # headless run-verification of the CEF runner
         ];
       in
       {
