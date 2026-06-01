@@ -1,13 +1,15 @@
-# Flatpak manifest for the GNOME Quick Web Apps manager.
+# Flatpak manifest for GNOME Quick Web Apps (manager + CEF runner).
 #
-# NOTE: This builds the GTK4 manager only. The CEF runner (#8) is added once
-# the Chromium build sources are vendored. A fully offline build also needs a
-# generated `cargo-sources.json` (via flatpak-builder-tools'
-# flatpak-cargo-generator.py) referenced under the build module's `sources`.
-#
-# Build:
+# Prerequisites:
 #   flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
 #     org.freedesktop.Sdk.Extension.rust-stable//24.08
+#
+# Generate the offline cargo sources once (and re-run when Cargo.lock changes):
+#   python3 ./build-aux/flatpak/flatpak-cargo-generator.py Cargo.lock \
+#     -o build-aux/flatpak/cargo-sources.json
+#   (flatpak-cargo-generator.py is from flatpak/flatpak-builder-tools)
+#
+# Build & install:
 #   flatpak-builder --user --install --force-clean build \
 #     build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
 
@@ -21,30 +23,57 @@ command: gnome-quick-web-apps
 
 finish-args:
   - --share=ipc
-  - --socket=fallback-x11
   - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
   - --share=network
-  # DynamicLauncher portal access for installing .desktop launchers
+  # Install web-app launchers via the portal
   - --talk-name=org.freedesktop.portal.DynamicLauncher
+  # Native, app-attributed desktop notifications
+  - --talk-name=org.freedesktop.Notifications
+  # Open external links / set default handlers
+  - --talk-name=org.freedesktop.portal.OpenURI
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
-    CARGO_HOME: /run/build/quick-web-apps/cargo
+    CARGO_HOME: /run/build/gnome-quick-web-apps/cargo
 
 modules:
-  - name: quick-web-apps
+  - name: gnome-quick-web-apps
     buildsystem: simple
+    build-options:
+      env:
+        # cef-dll-sys uses a pre-provided CEF instead of downloading one.
+        CEF_PATH: /run/build/gnome-quick-web-apps/cef
     build-commands:
-      - cargo build --release --offline -p gnome-quick-web-apps
+      # Lay out CEF the way cef-dll-sys' CEF_PATH expects: flattened
+      # Release/ + Resources/, plus the archive.json it validates.
+      - mkdir -p cef && tar -xf cef.tar.bz2 -C cef --strip-components=1
+      - cp -r cef/Release/. cef/ && cp -r cef/Resources/. cef/
+      - >-
+        printf '%s'
+        '{"type":"minimal","name":"cef_binary_145.0.28+g51162e8+chromium-145.0.7632.160_linux64_minimal.tar.bz2","sha1":"b95bd667f5e8baa096dad616a396ed28e06a43d8"}'
+        > cef/archive.json
+
+      - cargo build --release --offline -p gnome-quick-web-apps -p gnome-quick-web-apps-runner
+
       - install -Dm755 target/release/gnome-quick-web-apps /app/bin/gnome-quick-web-apps
-      - install -Dm644 data/io.github.olafkfreund.QuickWebApps.desktop
-        /app/share/applications/io.github.olafkfreund.QuickWebApps.desktop
-      - install -Dm644 data/io.github.olafkfreund.QuickWebApps.metainfo.xml
-        /app/share/metainfo/io.github.olafkfreund.QuickWebApps.metainfo.xml
-      - install -Dm644 data/icons/hicolor/scalable/apps/io.github.olafkfreund.QuickWebApps.svg
-        /app/share/icons/hicolor/scalable/apps/io.github.olafkfreund.QuickWebApps.svg
+      - install -Dm755 target/release/gnome-quick-web-apps-runner /app/bin/gnome-quick-web-apps-runner
+      - install -Dm755 target/release/gnome-quick-web-apps-runner-helper /app/bin/gnome-quick-web-apps-runner-helper
+
+      # Deploy the CEF runtime; cef_dir() finds it at /app/share/cef.
+      - mkdir -p /app/share/cef && cp -r cef/. /app/share/cef/
+
+      - install -Dm644 data/io.github.olafkfreund.QuickWebApps.desktop /app/share/applications/io.github.olafkfreund.QuickWebApps.desktop
+      - install -Dm644 data/io.github.olafkfreund.QuickWebApps.metainfo.xml /app/share/metainfo/io.github.olafkfreund.QuickWebApps.metainfo.xml
+      - install -Dm644 data/icons/hicolor/scalable/apps/io.github.olafkfreund.QuickWebApps.svg /app/share/icons/hicolor/scalable/apps/io.github.olafkfreund.QuickWebApps.svg
     sources:
       - type: dir
         path: ../..
-      # - cargo-sources.json   # generated; required for --offline
+      - type: file
+        url: https://cef-builds.spotifycdn.com/cef_binary_145.0.28%2Bg51162e8%2Bchromium-145.0.7632.160_linux64_minimal.tar.bz2
+        sha256: 065c7f7442f4f2917a95c3fde8052cb87e1e2f7ce962864c8325b12e52ec39f4
+        dest-filename: cef.tar.bz2
+      # Offline cargo dependencies (generate with flatpak-cargo-generator.py).
+      - cargo-sources.json

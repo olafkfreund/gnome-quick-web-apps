@@ -43,9 +43,17 @@ pub fn cef_dir() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            // Dev layout: a `cef/` dir beside the binary.
             let sibling = dir.join("cef");
             if sibling.exists() {
                 return Some(sibling);
+            }
+            // Installed layout (Nix): <prefix>/share/cef next to <prefix>/bin.
+            if let Some(prefix) = dir.parent() {
+                let share = prefix.join("share").join("cef");
+                if share.exists() {
+                    return Some(share);
+                }
             }
         }
     }

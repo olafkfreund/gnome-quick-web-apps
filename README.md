@@ -60,14 +60,54 @@ the **XDG DynamicLauncher portal** for sandbox-safe `.desktop` install, and
 
 See the [Epic and child issues](https://github.com/olafkfreund/gnome-quick-web-apps/issues) for live status.
 
-## Building
+## Installation
 
-> Requires the Rust toolchain, GTK4 ≥ 4.12 and libadwaita ≥ 1.5 development
-> packages. CEF is vendored in Phase 2 (kept out of the default build until
-> then so the workspace compiles without the Chromium download).
+### NixOS / Nix (flake)
 
 ```sh
-cargo build --workspace
+# Try it without installing
+nix run github:olafkfreund/gnome-quick-web-apps
+
+# Install into your profile
+nix profile install github:olafkfreund/gnome-quick-web-apps
+```
+
+In a NixOS or Home Manager config:
+
+```nix
+{
+  inputs.quick-web-apps.url = "github:olafkfreund/gnome-quick-web-apps";
+
+  # then, in your packages:
+  environment.systemPackages = [ inputs.quick-web-apps.packages.${pkgs.system}.default ];
+  # or home.packages = [ ... ];
+}
+```
+
+The flake pins the matching CEF build and patches it for NixOS, so no manual
+setup is needed.
+
+### Everyone else — Flatpak
+
+```sh
+flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
+  org.freedesktop.Sdk.Extension.rust-stable//24.08
+# generate offline cargo sources once:
+python3 build-aux/flatpak/flatpak-cargo-generator.py Cargo.lock \
+  -o build-aux/flatpak/cargo-sources.json
+flatpak-builder --user --install --force-clean build \
+  build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
+```
+
+## Building from source (dev)
+
+> Requires the Rust toolchain, GTK4 ≥ 4.12 and libadwaita ≥ 1.5. On NixOS use
+> the dev shell (it provides the CEF runtime libraries):
+
+```sh
+nix develop -c just build      # manager + runner + helper
+nix develop -c just run <id>   # launch a web app's CEF window
+nix develop -c just manager    # the editor
 ```
 
 ## License
