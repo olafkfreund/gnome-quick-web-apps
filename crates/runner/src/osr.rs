@@ -31,6 +31,11 @@ struct Shared {
     browser: RefCell<Option<Browser>>,
     /// Last known pointer position (for wheel events, which carry a location).
     mouse: std::cell::Cell<(i32, i32)>,
+    /// The app's settled home URL, recorded once the initial load (including
+    /// its redirect chain, e.g. gmail.com -> mail.google.com) completes. Until
+    /// then it is None and navigation is unrestricted; afterwards anything that
+    /// leaves this site is treated as external.
+    home: RefCell<Option<String>>,
 }
 
 /// Run `f` with the live browser host, if a browser exists.
@@ -243,6 +248,7 @@ wrap_life_span_handler! {
 
 wrap_load_handler! {
     struct OsrLoadHandler {
+        shared: Rc<Shared>,
         back: gtk::Button,
         forward: gtk::Button,
     }
@@ -250,13 +256,69 @@ wrap_load_handler! {
     impl LoadHandler {
         fn on_loading_state_change(
             &self,
-            _browser: Option<&mut Browser>,
-            _is_loading: i32,
+            browser: Option<&mut Browser>,
+            is_loading: i32,
             can_go_back: i32,
             can_go_forward: i32,
         ) {
             self.back.set_sensitive(can_go_back != 0);
             self.forward.set_sensitive(can_go_forward != 0);
+
+            // Record the settled home once the first load completes, after any
+            // initial redirect chain (gmail.com -> mail.google.com).
+            if is_loading == 0 && self.shared.home.borrow().is_none() {
+                if let Some(url) = crate::app::current_page_url(browser) {
+                    if url.starts_with("http") {
+                        tracing::info!("settled home: {url}");
+                        *self.shared.home.borrow_mut() = Some(url);
+                    }
+                }
+            }
+        }
+    }
+}
+
+wrap_request_handler! {
+    struct OsrRequestHandler {
+        shared: Rc<Shared>,
+        scope: Option<String>,
+        app_url: String,
+    }
+
+    impl RequestHandler {
+        fn on_before_browse(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            request: Option<&mut Request>,
+            _user_gesture: i32,
+            _is_redirect: i32,
+        ) -> i32 {
+            let Some(request) = request else {
+                return 0;
+            };
+            let url = CefString::from(&request.url()).to_string();
+
+            // Until the app has settled on its home, allow everything (this is
+            // the initial load + its redirects, possibly across domains).
+            let home = match self.shared.home.borrow().clone() {
+                Some(h) => h,
+                None => return 0,
+            };
+
+            // A link to another installed web app opens that app.
+            if crate::app::route_to_installed_app(&url) {
+                return 1;
+            }
+            // Anything that leaves the settled site opens in the system browser
+            // (this also catches Gmail's google.com/url -> external redirects).
+            if !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home) {
+                if let Err(e) = open::that(&url) {
+                    tracing::warn!("failed to open external url {url}: {e}");
+                }
+                return 1;
+            }
+            0
         }
     }
 }
@@ -302,15 +364,18 @@ wrap_client! {
         }
 
         fn request_handler(&self) -> Option<RequestHandler> {
-            // Preserve #9 scope confinement in the OSR path.
             let (scope, app_url) = crate::app::current_app()
                 .map(|a| (a.scope, a.url))
                 .unwrap_or((None, String::new()));
-            Some(crate::app::simple_handler::ScopeRequestHandler::new(scope, app_url))
+            Some(OsrRequestHandler::new(self.shared.clone(), scope, app_url))
         }
 
         fn load_handler(&self) -> Option<LoadHandler> {
-            Some(OsrLoadHandler::new(self.back.clone(), self.forward.clone()))
+            Some(OsrLoadHandler::new(
+                self.shared.clone(),
+                self.back.clone(),
+                self.forward.clone(),
+            ))
         }
 
         fn permission_handler(&self) -> Option<PermissionHandler> {
