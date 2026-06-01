@@ -194,25 +194,26 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut i32>,
         ) -> i32 {
-            // Never spawn a separate window. Popups NOT triggered by a user
-            // click are background preloads / ads / trackers (e.g. Gmail opens
-            // Meet/Drive/Tasks/Calendar on load) — block them silently.
+            // Never spawn a separate window. Popups NOT from a user click are
+            // background preloads / ads / trackers (e.g. Gmail opens
+            // Meet/Drive/Tasks on load) — block them silently.
             if user_gesture == 0 {
                 return 1;
             }
-            // User-initiated: in-scope navigates the main window in place;
-            // off-scope opens in the system browser.
+            // User-initiated: open in the system browser ONLY if the target is
+            // genuinely external — i.e. a different site than the page we're on
+            // right now (not just the configured start URL, which may have
+            // redirected, e.g. gmail.com -> mail.google.com). Same-site popups
+            // (contact hovercards, Google widgets) are suppressed in place.
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
             if !url.is_empty() {
-                let (scope, app_url) = crate::app::current_app()
-                    .map(|a| (a.scope, a.url))
-                    .unwrap_or((None, String::new()));
-                if qwa_core::is_in_scope(&url, scope.as_deref(), &app_url) {
-                    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
-                        frame.load_url(Some(&CefString::from(url.as_str())));
+                let home = crate::app::current_page_url(browser).unwrap_or_else(|| {
+                    crate::app::current_app().map(|a| a.url).unwrap_or_default()
+                });
+                if !qwa_core::same_site(&url, &home) {
+                    if let Err(e) = open::that(&url) {
+                        tracing::warn!("failed to open external url {url}: {e}");
                     }
-                } else if let Err(e) = open::that(&url) {
-                    tracing::warn!("failed to open external url {url}: {e}");
                 }
             }
             1 // cancel the popup

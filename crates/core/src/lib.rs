@@ -83,9 +83,14 @@ pub fn is_in_scope(target: &str, scope: Option<&str>, app_url: &str) -> bool {
         // mailto:, tel:, intent:, etc. — hand off externally.
         return false;
     }
+    // Same registrable domain as the app is always in-scope (covers a site's
+    // sibling subdomains). An explicit manifest scope only widens this.
+    if same_host(t, app_url) {
+        return true;
+    }
     match scope {
         Some(s) if !s.is_empty() => t.starts_with(s),
-        _ => same_host(t, app_url),
+        _ => false,
     }
 }
 
@@ -105,6 +110,13 @@ fn registrable_domain(url: &str) -> Option<String> {
 }
 
 fn same_host(a: &str, b: &str) -> bool {
+    same_site(a, b)
+}
+
+/// True when two URLs share a registrable domain (e.g. `mail.google.com` and
+/// `contacts.google.com` are same-site). Used to decide whether a navigation
+/// or popup belongs to the running app or is genuinely external.
+pub fn same_site(a: &str, b: &str) -> bool {
     match (registrable_domain(a), registrable_domain(b)) {
         (Some(a), Some(b)) => a == b,
         _ => false,

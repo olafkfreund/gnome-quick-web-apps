@@ -24,6 +24,14 @@ pub(crate) fn current_app() -> Option<WebApp> {
     WebApp::load(&id).ok()
 }
 
+/// The URL the browser's main frame is currently showing. Reflects the live
+/// location after redirects (e.g. gmail.com -> mail.google.com), so scope
+/// decisions are made against where the app actually is.
+pub(crate) fn current_page_url(browser: Option<&mut Browser>) -> Option<String> {
+    let url = browser?.main_frame()?.url();
+    Some(CefString::from(&url).to_string())
+}
+
 #[allow(dead_code)]
 pub fn run_main(main_args: &MainArgs, cmd_line: &CommandLine, sandbox_info: *mut u8) {
     let switch = CefString::from("type");

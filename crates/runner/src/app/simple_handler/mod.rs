@@ -14,7 +14,7 @@ wrap_request_handler! {
     impl RequestHandler {
         fn on_before_browse(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             user_gesture: i32,
@@ -25,12 +25,16 @@ wrap_request_handler! {
             };
             let url = CefString::from(&request.url()).to_string();
 
-            // Only divert a DELIBERATE user click to an off-scope site. Never
-            // touch redirects or programmatic navigation — diverting those
-            // breaks login/OAuth flows (e.g. mail.google.com -> accounts...)
-            // and would leave the window blank.
+            // Judge scope against the page we're actually on (post-redirect),
+            // falling back to the configured app URL.
+            let home = crate::app::current_page_url(browser)
+                .unwrap_or_else(|| self.app_url.clone());
+
+            // Only divert a DELIBERATE user click to a genuinely external site.
+            // Redirects / programmatic navigation always stay in-window so
+            // login/OAuth flows (mail.google.com -> accounts.google.com) work.
             let deliberate = user_gesture == 1 && is_redirect == 0;
-            if deliberate && !qwa_core::is_in_scope(&url, self.scope.as_deref(), &self.app_url) {
+            if deliberate && !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home) {
                 if let Err(e) = open::that(&url) {
                     tracing::warn!("failed to open external url {url}: {e}");
                 }
