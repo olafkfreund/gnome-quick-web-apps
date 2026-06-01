@@ -1,0 +1,22 @@
+[package]
+name = "gnome-quick-web-apps"
+description = "GTK4/libadwaita manager for creating and editing web apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "gnome-quick-web-apps"
+path = "src/main.rs"
+
+[dependencies]
+qwa-core = { path = "../core" }
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+
+gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }
+adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }

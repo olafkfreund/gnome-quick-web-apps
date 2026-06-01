@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GNOME Quick Web Apps — turn any website into a desktop app</title>
+  <meta name="description" content="A native GTK4/libadwaita web-app manager for GNOME with PWA manifest auto-detection, automatic icons, URL-scope confinement and bundled Chromium rendering." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --bg-soft: #131722;
+      --card: #1a1f2e;
+      --line: #262d3d;
+      --text: #e6e9ef;
+      --muted: #9aa4b8;
+      --accent: #3584e4;     /* GNOME blue */
+      --accent-2: #9141ac;   /* GNOME purple */
+      --green: #33d17a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+    header.hero {
+      position: relative;
+      padding: 120px 0 96px;
+      text-align: center;
+      background:
+        radial-gradient(900px 500px at 50% -10%, rgba(53,132,228,0.22), transparent 70%),
+        radial-gradient(700px 400px at 80% 10%, rgba(145,65,172,0.18), transparent 70%);
+      border-bottom: 1px solid var(--line);
+    }
+    .badge {
+      display: inline-block; font-size: 13px; font-weight: 600;
+      color: var(--green); border: 1px solid var(--line);
+      background: var(--bg-soft); border-radius: 999px;
+      padding: 6px 14px; margin-bottom: 24px; letter-spacing: .02em;
+    }
+    h1 {
+      font-size: clamp(36px, 6vw, 64px); font-weight: 800;
+      line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 20px;
+      background: linear-gradient(120deg, #fff 30%, var(--accent) 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .sub { font-size: clamp(17px, 2.4vw, 21px); color: var(--muted); max-width: 680px; margin: 0 auto 36px; }
+    .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      font-weight: 600; font-size: 15px; padding: 13px 26px; border-radius: 12px;
+      border: 1px solid transparent; transition: transform .15s ease, background .15s ease;
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-ghost { background: var(--bg-soft); border-color: var(--line); color: var(--text); }
+
+    section { padding: 80px 0; }
+    .eyebrow { color: var(--accent); font-weight: 600; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+    h2 { font-size: clamp(26px, 4vw, 38px); font-weight: 800; letter-spacing: -0.01em; margin: 8px 0 40px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 26px; transition: border-color .2s ease, transform .2s ease;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-3px); }
+    .card .ico { font-size: 26px; margin-bottom: 14px; }
+    .card h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    .card p { color: var(--muted); font-size: 15px; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+    th, td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--line); font-size: 15px; }
+    th { background: var(--bg-soft); font-weight: 600; }
+    td.win { color: var(--green); font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+
+    .roadmap { display: grid; gap: 14px; }
+    .phase { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 20px 24px; }
+    .phase b { display: block; margin-bottom: 4px; }
+    .phase span { color: var(--muted); font-size: 15px; }
+
+    footer { border-top: 1px solid var(--line); padding: 40px 0 60px; color: var(--muted); font-size: 14px; text-align: center; }
+    footer code { background: var(--bg-soft); padding: 2px 8px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <span class="badge">● Phase 1 in progress</span>
+      <h1>Turn any website into<br />a first-class GNOME app</h1>
+      <p class="sub">
+        A native GTK4 &amp; libadwaita web-app manager. Paste a URL — it detects the
+        PWA manifest, grabs the icon, and installs a launcher into your app grid.
+        Each app runs isolated, with its own window and dock identity.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/olafkfreund/gnome-quick-web-apps">View on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/olafkfreund/gnome-quick-web-apps/issues">Track progress</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="wrap">
+    <span class="eyebrow">Features</span>
+    <h2>Built for the modern desktop</h2>
+    <div class="grid">
+      <div class="card"><div class="ico">🔎</div><h3>PWA manifest autofill</h3><p>Paste a URL and the name, icon, theme colour and navigation scope fill themselves in from the site's Web App Manifest.</p></div>
+      <div class="card"><div class="ico">🎨</div><h3>Automatic icons</h3><p>Pulls the highest-resolution manifest or apple-touch icon, with a clean lettered fallback when a site has none.</p></div>
+      <div class="card"><div class="ico">🧭</div><h3>Scope confinement</h3><p>Real PWA behaviour: links that leave the app's scope open in your system browser instead of hijacking the window.</p></div>
+      <div class="card"><div class="ico">🪟</div><h3>Native window identity</h3><p>Each app gets its own icon in the dock and Alt-Tab via <code>StartupWMClass</code>, installed through the XDG launcher portal.</p></div>
+      <div class="card"><div class="ico">🛡️</div><h3>Per-app controls</h3><p>Custom user agent, ad-blocking content filters, zoom and injected CSS — configured per web app.</p></div>
+      <div class="card"><div class="ico">🎬</div><h3>Full site compatibility</h3><p>Bundled Chromium (CEF) rendering means DRM and Chrome-only sites just work.</p></div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <span class="eyebrow">Comparison</span>
+    <h2>Why it beats the COSMIC original</h2>
+    <table>
+      <tr><th>Capability</th><th>Quick Web Apps (COSMIC)</th><th>GNOME Quick Web Apps</th></tr>
+      <tr><td>UI toolkit</td><td>libcosmic (iced)</td><td class="win">GTK4 + libadwaita</td></tr>
+      <tr><td>Setup</td><td>Type everything manually</td><td class="win">Paste URL → autofill</td></tr>
+      <tr><td>Icons</td><td>Pick from Papirus</td><td class="win">Auto-downloaded</td></tr>
+      <tr><td>Navigation</td><td>Plain browser window</td><td class="win">Scope-confined</td></tr>
+      <tr><td>Per-app config</td><td>Basic</td><td class="win">UA · adblock · zoom · CSS</td></tr>
+    </table>
+  </section>
+
+  <section class="wrap">
+    <span class="eyebrow">Roadmap</span>
+    <h2>Where we're headed</h2>
+    <div class="roadmap">
+      <div class="phase"><b>Phase 1 — Core &amp; Manager</b><span>Data model, JSON storage, launcher install, GTK4 manager with create/edit/delete.</span></div>
+      <div class="phase"><b>Phase 2 — Differentiators</b><span>PWA manifest autofill, auto-icon download, scope confinement, per-app UA and adblock.</span></div>
+      <div class="phase"><b>Phase 3 — Native shell</b><span>CEF off-screen rendering inside a libadwaita window with a real header bar.</span></div>
+      <div class="phase"><b>Phase 4 — Polish</b><span>GNOME Shell search provider, import from COSMIC / Linux Mint, Flathub release.</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <p>GPL-3.0 · Built with Rust, GTK4 &amp; libadwaita · Inspired by <a href="https://github.com/cosmic-utils/web-apps">cosmic-utils/web-apps</a></p>
+    </div>
+  </footer>
+</body>
+</html>

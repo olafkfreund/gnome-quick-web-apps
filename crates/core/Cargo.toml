@@ -1,0 +1,28 @@
+[package]
+name = "qwa-core"
+description = "Shared model, storage, PWA manifest detection and launcher install for GNOME Quick Web Apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+# PWA manifest + icon fetching
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+scraper = "0.20"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "webp"] }
+tokio = { workspace = true }
+
+# XDG DynamicLauncher portal (same approach as cosmic-utils/web-apps)
+ashpd = { version = "0.9", features = ["tokio"] }
+
+# lettered fallback icon
+rand = "0.8"

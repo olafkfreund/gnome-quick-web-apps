@@ -1,0 +1,23 @@
+[package]
+name = "gnome-quick-web-apps-runner"
+description = "CEF-based runner that opens a single web app in its own window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "gnome-quick-web-apps-runner"
+path = "src/main.rs"
+
+[dependencies]
+qwa-core = { path = "../core" }
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Chromium Embedded Framework. Pinned major like cosmic-utils/web-apps.
+# Phase 1 keeps this commented until the CEF build sources are vendored so
+# the workspace builds without the ~200MB Chromium download.
+# cef = { version = "145", features = ["linux-x11"] }

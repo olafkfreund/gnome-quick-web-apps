@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+Cargo.lock
+.flatpak-builder/
+build/
+*.swp
+.DS_Store
