@@ -24,6 +24,12 @@
 
 ---
 
+> [!NOTE]
+> **Built with AI assistance.** This project was developed using
+> [Claude Code](https://claude.com/claude-code) (Anthropic) under continuous
+> human review and supervision. Every change was reviewed, tested, and approved
+> by a human maintainer.
+
 ## What is this?
 
 A native GNOME alternative to [`cosmic-utils/web-apps`](https://github.com/cosmic-utils/web-apps)
@@ -102,12 +108,13 @@ setup is needed.
 ```sh
 flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
   org.freedesktop.Sdk.Extension.rust-stable//24.08
-# generate offline cargo sources once:
-python3 build-aux/flatpak/flatpak-cargo-generator.py Cargo.lock \
-  -o build-aux/flatpak/cargo-sources.json
 flatpak-builder --user --install --force-clean build \
   build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
 ```
+
+The offline cargo sources (`cargo-sources.json`) are committed, and CI builds an
+installable `.flatpak` bundle on every push — grab it from the latest run's
+artifacts.
 
 ## Building from source (dev)
 

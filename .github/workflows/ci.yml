@@ -47,3 +47,19 @@ jobs:
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
       - name: Build package (nix)
         run: nix build .#default --print-build-logs
+
+  # Build the Flatpak end-to-end in the GNOME SDK and upload an installable
+  # bundle. Verifies the manifest + offline cargo sources actually build.
+  flatpak:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-47
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: gnome-quick-web-apps.flatpak
+          manifest-path: build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
+          cache-key: flatpak-builder-${{ github.sha }}
