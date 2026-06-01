@@ -321,18 +321,32 @@ wrap_request_handler! {
         fn on_before_browse(
             &self,
             _browser: Option<&mut Browser>,
-            _frame: Option<&mut cef::Frame>,
+            frame: Option<&mut cef::Frame>,
             request: Option<&mut Request>,
-            _user_gesture: i32,
-            _is_redirect: i32,
+            user_gesture: i32,
+            is_redirect: i32,
         ) -> i32 {
             let Some(request) = request else {
                 return 0;
             };
             let url = CefString::from(&request.url()).to_string();
 
-            // A link to another installed web app always opens that app.
-            if crate::app::route_to_installed_app(&url) {
+            // Only top-level navigations participate in routing / browser
+            // diversion. Embedded service panels (Gmail's Tasks/Keep/Calendar
+            // side panels, in-page iframes, OAuth frames) are sub-frames and
+            // MUST be allowed to load in place — otherwise clicking Tasks inside
+            // Gmail would be cancelled here and the panel hangs/dies. (#19)
+            let is_main_frame = frame.map(|f| f.is_main() == 1).unwrap_or(true);
+            if !is_main_frame {
+                return 0;
+            }
+
+            // A *deliberately clicked* top-level link to another installed web
+            // app opens that app. Gate strictly on a real user gesture (and not
+            // a redirect): otherwise an app like Gmail, which performs
+            // background navigations to sibling Google services (Drive, Tasks,
+            // Docs), would spuriously launch each of those installed apps. (#19)
+            if user_gesture == 1 && is_redirect == 0 && crate::app::route_to_installed_app(&url) {
                 return 1;
             }
 
