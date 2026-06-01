@@ -200,20 +200,24 @@ wrap_life_span_handler! {
             if user_gesture == 0 {
                 return 1;
             }
-            // User-initiated: open in the system browser ONLY if the target is
-            // genuinely external — i.e. a different site than the page we're on
-            // right now (not just the configured start URL, which may have
-            // redirected, e.g. gmail.com -> mail.google.com). Same-site popups
-            // (contact hovercards, Google widgets) are suppressed in place.
+            let mut browser = browser;
+            // User-initiated popup. Compare against the page we're on right now
+            // (post-redirect, e.g. gmail.com -> mail.google.com):
+            //   same-site (Drive/Docs/Calendar from the waffle) -> open it in
+            //              this window so the click actually does something;
+            //   external   -> open in the system browser.
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
             if !url.is_empty() {
-                let home = crate::app::current_page_url(browser).unwrap_or_else(|| {
-                    crate::app::current_app().map(|a| a.url).unwrap_or_default()
-                });
-                if !qwa_core::same_site(&url, &home) {
-                    if let Err(e) = open::that(&url) {
-                        tracing::warn!("failed to open external url {url}: {e}");
+                let home = crate::app::current_page_url(browser.as_deref_mut())
+                    .unwrap_or_else(|| {
+                        crate::app::current_app().map(|a| a.url).unwrap_or_default()
+                    });
+                if qwa_core::same_site(&url, &home) {
+                    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+                        frame.load_url(Some(&CefString::from(url.as_str())));
                     }
+                } else if let Err(e) = open::that(&url) {
+                    tracing::warn!("failed to open external url {url}: {e}");
                 }
             }
             1 // cancel the popup
