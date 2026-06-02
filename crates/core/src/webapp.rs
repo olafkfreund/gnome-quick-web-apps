@@ -9,6 +9,11 @@ use crate::paths;
 pub type WindowWidth = u32;
 pub type WindowHeight = u32;
 
+/// `serde` default helper for fields that default to `true`.
+fn default_true() -> bool {
+    true
+}
+
 /// How in-app navigation to another page is handled — the tri-state successor
 /// to the old `external_links_in_browser` bool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -213,11 +218,13 @@ pub struct WebApp {
     /// Per-app user CSS injected into every page after load. `None` = no CSS.
     #[serde(default)]
     pub custom_css: Option<String>,
-    /// Permission policy: allow the site to use the camera/microphone. Default
-    /// false — the request is denied unless the user opts in here.
-    #[serde(default)]
+    /// Permission policy: allow the site to use the camera/microphone. Defaults
+    /// to true — you typically install an app (Teams, Zoom, Meet) to use them;
+    /// the user can deny per app. `serde` default keeps it true for old configs.
+    #[serde(default = "default_true")]
     pub allow_camera_mic: bool,
-    /// Permission policy: allow the site to access geolocation. Default false.
+    /// Permission policy: allow the site to access geolocation. Default false —
+    /// location is more sensitive and rarely needed; opt in per app.
     #[serde(default)]
     pub allow_location: bool,
 }
@@ -251,7 +258,7 @@ impl WebApp {
             color_scheme: ColorScheme::System,
             run_in_background: false,
             custom_css: None,
-            allow_camera_mic: false,
+            allow_camera_mic: true,
             allow_location: false,
         }
     }

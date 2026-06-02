@@ -26,7 +26,9 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --socket=pulseaudio
+  # dri for GPU + all for camera/webcam (/dev/video*) so video calls work
   - --device=dri
+  - --device=all
   - --share=network
   # Install web-app launchers via the portal
   - --talk-name=org.freedesktop.portal.DynamicLauncher
