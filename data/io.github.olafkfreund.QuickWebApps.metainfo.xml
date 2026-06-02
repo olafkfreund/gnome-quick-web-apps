@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.7" date="2026-06-02">
+      <description>
+        <p>Deeper desktop integration: media apps now expose MPRIS controls (lock screen, media keys, Quick Settings); mail/chat apps can show an unread count badge on the dock; and background apps get a tray icon (show/quit) plus an optional "Start on login".</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-06-02">
       <description>
         <p>Apps that share a login profile can now run at the same time, in one process with one shared session. New "Identify as" option spoofs the browser OS (Windows/macOS/Mobile/Custom) for services that require it. Clearer messaging when a profile is already in use.</p>
