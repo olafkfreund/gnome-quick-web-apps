@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.13" date="2026-06-02">
+      <description>
+        <p>Fixes a crash on startup introduced in 0.1.12, where every web app could segfault when launched. The experimental DRM content-setting call is not supported by the embedded engine and has been disabled; DRM playback (Netflix, Apple Music) remains a known limitation being worked on, while the rest of the app works normally again.</p>
+      </description>
+    </release>
     <release version="0.1.12" date="2026-06-02">
       <description>
         <p>DRM playback fix: enables the "Sites can play protected content" setting via Chromium's protected-media content setting (the correct mechanism; earlier preference-based attempts had no effect). With a reused Widevine module present, Netflix, Apple Music and other DRM sites should now play instead of showing error M7701-1003.</p>

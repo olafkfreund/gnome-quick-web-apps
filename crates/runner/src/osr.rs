@@ -216,18 +216,16 @@ wrap_app! {
 /// candidate prefs (`settings.privacy.drm_enabled`, …) were settable. Passing
 /// empty URLs sets the global default, so it applies to every web app.
 fn enable_protected_content() {
-    let Some(ctx) = request_context_get_global_context() else {
-        tracing::warn!("no global request context; cannot enable protected content");
-        return;
-    };
-    ctx.set_content_setting(
-        None,
-        None,
-        ContentSettingTypes::PROTECTED_MEDIA_IDENTIFIER,
-        ContentSettingValues::ALLOW,
-    );
-    tracing::info!(
-        "protected content enabled: PROTECTED_MEDIA_IDENTIFIER default = ALLOW (DRM playback)"
+    // NOTE (#36): on CEF 145's Alloy/OSR runtime, both the preference API
+    // (no DRM pref is settable) and `RequestContext::set_content_setting`
+    // (it segfaults inside libcef, regardless of args) are dead ends for
+    // enabling "Sites can play protected content". So DRM playback (Netflix
+    // M7701-1003) is not yet enabled. This is intentionally a no-op — earlier
+    // attempts crashed every web app on startup. Tracked in #36; the Widevine
+    // CDM itself still loads (see `widevine::provision`).
+    tracing::debug!(
+        "protected-content enablement unsupported on this CEF build; DRM playback \
+         stays disabled (#36)"
     );
 }
 
