@@ -17,20 +17,16 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use cef::{Rect, *};
+use gtk::gdk;
 use gtk::gio;
 use qwa_core::WebApp;
 
-/// The most recent painted frame (BGRA, premultiplied — matches Cairo ARGB32).
-struct Frame {
-    buf: Vec<u8>,
-    width: i32,
-    height: i32,
-}
-
 #[derive(Default)]
 struct Shared {
-    frame: RefCell<Option<Frame>>,
     browser: RefCell<Option<Browser>>,
+    /// The `gtk::Picture` that displays the CEF frame texture. Set in
+    /// `open_window`; used by the context-menu handler to parent its popover.
+    picture: RefCell<Option<gtk::Picture>>,
     /// Last known pointer position (for wheel events, which carry a location).
     mouse: std::cell::Cell<(i32, i32)>,
     /// The app's settled home URL, recorded once the initial load (including
@@ -274,7 +270,7 @@ wrap_browser_process_handler! {
 wrap_render_handler! {
     struct OsrRenderHandler {
         shared: Rc<Shared>,
-        area: gtk::DrawingArea,
+        picture: gtk::Picture,
     }
 
     impl RenderHandler {
@@ -282,8 +278,8 @@ wrap_render_handler! {
             if let Some(rect) = rect {
                 rect.x = 0;
                 rect.y = 0;
-                rect.width = self.area.width().max(1);
-                rect.height = self.area.height().max(1);
+                rect.width = self.picture.width().max(1);
+                rect.height = self.picture.height().max(1);
             }
         }
 
@@ -306,17 +302,17 @@ wrap_render_handler! {
                 // implausible — this keeps integer-scaled GNOME (which already
                 // works) unchanged.
                 let surface_scale = self
-                    .area
+                    .picture
                     .native()
                     .and_then(|n| n.surface())
                     .map(|s| s.scale());
                 info.device_scale_factor = match surface_scale {
                     Some(s) if s.is_finite() && s >= 1.0 => s as f32,
-                    _ => self.area.scale_factor().max(1) as f32,
+                    _ => self.picture.scale_factor().max(1) as f32,
                 };
                 info.depth = 24;
                 info.depth_per_component = 8;
-                let (w, h) = (self.area.width().max(1), self.area.height().max(1));
+                let (w, h) = (self.picture.width().max(1), self.picture.height().max(1));
                 info.rect = Rect { x: 0, y: 0, width: w, height: h };
                 info.available_rect = Rect { x: 0, y: 0, width: w, height: h };
                 return 1;
@@ -338,11 +334,24 @@ wrap_render_handler! {
                 return;
             }
             let len = (width as usize) * (height as usize) * 4;
-            let buf = unsafe { std::slice::from_raw_parts(buffer, len) }.to_vec();
+            let buf = unsafe { std::slice::from_raw_parts(buffer, len) };
             static FIRST_PAINT: std::sync::Once = std::sync::Once::new();
             FIRST_PAINT.call_once(|| tracing::info!("first osr paint {width}x{height}"));
-            *self.shared.frame.borrow_mut() = Some(Frame { buf, width, height });
-            self.area.queue_draw();
+            // Build a GSK texture from CEF's physical-pixel BGRA-premultiplied
+            // buffer and hand it to the Picture. GSK's renderer is
+            // fractional-scale-aware, so it scales this physical buffer to the
+            // widget at the device scale — 1:1, crisp — where the old Cairo blit
+            // went through a downscale + compositor-upscale and looked blurry.
+            // (This runs on the GTK thread; CEF is pumped from the GTK loop.)
+            let bytes = gtk::glib::Bytes::from(buf);
+            let texture = gdk::MemoryTexture::new(
+                width,
+                height,
+                gdk::MemoryFormat::B8g8r8a8Premultiplied,
+                &bytes,
+                (width * 4) as usize,
+            );
+            self.picture.set_paintable(Some(&texture));
         }
     }
 }
@@ -772,7 +781,7 @@ wrap_download_handler! {
 wrap_client! {
     struct OsrClient {
         shared: Rc<Shared>,
-        area: gtk::DrawingArea,
+        picture: gtk::Picture,
         back: gtk::Button,
         forward: gtk::Button,
         app: Rc<WebApp>,
@@ -780,7 +789,14 @@ wrap_client! {
 
     impl Client {
         fn render_handler(&self) -> Option<RenderHandler> {
-            Some(OsrRenderHandler::new(self.shared.clone(), self.area.clone()))
+            Some(OsrRenderHandler::new(
+                self.shared.clone(),
+                self.picture.clone(),
+            ))
+        }
+
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(OsrContextMenuHandler::new(self.shared.clone()))
         }
 
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
@@ -821,6 +837,122 @@ wrap_client! {
             Some(OsrDisplayHandler::new(self.app.clone(), self.shared.clone()))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Context menu (#34)
+//
+// Off-screen rendering has no native popup menu, so CEF asks us to draw one via
+// run_context_menu. We cancel CEF's own menu and present our own GTK
+// `PopoverMenu` (a `gio::Menu` model backed by a `gio::SimpleActionGroup`),
+// parented to the Picture and pointed at the click location. Navigation actions
+// drive the browser (go_back/forward/reload); edit actions drive the focused
+// frame's editor commands (cut/copy/paste/select_all), the same commands the
+// Ctrl-shortcuts use.
+// ---------------------------------------------------------------------------
+
+wrap_context_menu_handler! {
+    struct OsrContextMenuHandler {
+        shared: Rc<Shared>,
+    }
+
+    impl ContextMenuHandler {
+        fn run_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            params: Option<&mut ContextMenuParams>,
+            _model: Option<&mut MenuModel>,
+            callback: Option<&mut RunContextMenuCallback>,
+        ) -> i32 {
+            // Click location, in widget-logical coordinates (same space the
+            // input controllers use).
+            let (x, y) = params
+                .map(|p| (p.xcoord(), p.ycoord()))
+                .unwrap_or((0, 0));
+
+            // We render our own menu, so dismiss CEF's pending one.
+            if let Some(callback) = callback {
+                callback.cancel();
+            }
+
+            show_context_menu(&self.shared, x, y);
+            1 // handled — we showed our own menu
+        }
+    }
+}
+
+/// Present our GTK context menu for the window described by `shared`, anchored
+/// to the Picture at the logical click point `(x, y)`. No-ops cleanly if the
+/// widget is gone (window closing) or the browser is unavailable.
+fn show_context_menu(shared: &Rc<Shared>, x: i32, y: i32) {
+    let Some(picture) = shared.picture.borrow().clone() else {
+        return;
+    };
+
+    // Actions: nav (back/forward/reload) reach the browser; edit commands reach
+    // the focused frame, mirroring the Ctrl shortcuts.
+    let actions = gio::SimpleActionGroup::new();
+    let add = |name: &str, f: Box<dyn Fn()>| {
+        let action = gio::SimpleAction::new(name, None);
+        action.connect_activate(move |_, _| f());
+        actions.add_action(&action);
+    };
+
+    let with_browser = |f: Box<dyn Fn(&Browser)>| -> Box<dyn Fn()> {
+        let shared = shared.clone();
+        Box::new(move || {
+            if let Some(b) = shared.browser.borrow().as_ref() {
+                f(b);
+            }
+        })
+    };
+    let with_frame = |f: Box<dyn Fn(&cef::Frame)>| -> Box<dyn Fn()> {
+        let shared = shared.clone();
+        Box::new(move || {
+            if let Some(frame) = shared
+                .browser
+                .borrow()
+                .as_ref()
+                .and_then(|b| b.main_frame())
+            {
+                f(&frame);
+            }
+        })
+    };
+
+    add("back", with_browser(Box::new(|b| b.go_back())));
+    add("forward", with_browser(Box::new(|b| b.go_forward())));
+    add("reload", with_browser(Box::new(|b| b.reload())));
+    add("cut", with_frame(Box::new(|f| f.cut())));
+    add("copy", with_frame(Box::new(|f| f.copy())));
+    add("paste", with_frame(Box::new(|f| f.paste())));
+    add("select-all", with_frame(Box::new(|f| f.select_all())));
+
+    picture.insert_action_group("ctx", Some(&actions));
+
+    // Menu model: nav | edit, referencing the actions above.
+    let menu = gio::Menu::new();
+    let nav = gio::Menu::new();
+    nav.append(Some("Back"), Some("ctx.back"));
+    nav.append(Some("Forward"), Some("ctx.forward"));
+    nav.append(Some("Reload"), Some("ctx.reload"));
+    menu.append_section(None, &nav);
+    let edit = gio::Menu::new();
+    edit.append(Some("Cut"), Some("ctx.cut"));
+    edit.append(Some("Copy"), Some("ctx.copy"));
+    edit.append(Some("Paste"), Some("ctx.paste"));
+    edit.append(Some("Select All"), Some("ctx.select-all"));
+    menu.append_section(None, &edit);
+
+    let popover = gtk::PopoverMenu::from_model(Some(&menu));
+    popover.set_parent(&picture);
+    popover.set_has_arrow(false);
+    popover.set_pointing_to(Some(&gdk::Rectangle::new(x, y, 1, 1)));
+    // Release the popover (and its parenting) once dismissed so it doesn't leak
+    // and a fresh one is built on the next right-click.
+    popover.connect_closed(|p| p.unparent());
+    popover.popup();
 }
 
 thread_local! {
@@ -1971,45 +2103,25 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
         });
     }
 
-    let area = gtk::DrawingArea::new();
-    area.set_hexpand(true);
-    area.set_vexpand(true);
+    // The CEF frame is shown via a `gtk::Picture` painting a GSK
+    // `gdk::MemoryTexture` (set in OsrRenderHandler::on_paint). GSK's renderer
+    // is fractional-scale-aware, so the physical-pixel texture is scaled to the
+    // widget at the device scale (crisp), unlike the old Cairo blit. ContentFit
+    // ::Fill maps the texture across the whole widget; can_shrink lets the
+    // widget go below the texture's natural size.
+    let picture = gtk::Picture::new();
+    picture.set_hexpand(true);
+    picture.set_vexpand(true);
+    picture.set_can_shrink(true);
+    picture.set_content_fit(gtk::ContentFit::Fill);
+    picture.set_focusable(true);
 
-    {
-        let shared = shared.clone();
-        area.set_draw_func(move |_area, cr, w, _h| {
-            if let Some(frame) = shared.frame.borrow().as_ref() {
-                let stride = frame.width * 4;
-                if let Ok(surface) = gtk::cairo::ImageSurface::create_for_data(
-                    frame.buf.clone(),
-                    gtk::cairo::Format::ARgb32,
-                    frame.width,
-                    frame.height,
-                    stride,
-                ) {
-                    // The buffer is at physical resolution (logical * scale).
-                    // Tell Cairo the surface is hi-res via its device scale so
-                    // it maps 1 buffer pixel to 1 device pixel (crisp), and use
-                    // the highest-quality filter for any residual resampling
-                    // (e.g. fractional scaling). NOTE: on compositors where the
-                    // GtkDrawingArea's Cairo backing is only integer-scaled
-                    // (some fractional-scaling Wayland setups), this still goes
-                    // through a downscale+compositor-upscale and can stay soft;
-                    // the full fix is a GSK GdkMemoryTexture paint path.
-                    let scale = frame.width as f64 / (w.max(1) as f64);
-                    surface.set_device_scale(scale as f64, scale as f64);
-                    if cr.set_source_surface(&surface, 0.0, 0.0).is_ok() {
-                        cr.source().set_filter(gtk::cairo::Filter::Best);
-                        let _ = cr.paint();
-                    }
-                }
-            }
-        });
-    }
+    // Record the Picture so the context-menu handler can parent its popover.
+    *shared.picture.borrow_mut() = Some(picture.clone());
 
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&area));
+    toolbar.set_content(Some(&picture));
 
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -2050,10 +2162,10 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
 
     window.present();
 
-    // Create the off-screen browser bound to this drawing area.
+    // Create the off-screen browser bound to this picture.
     let mut client = OsrClient::new(
         shared.clone(),
-        area.clone(),
+        picture.clone(),
         back.clone(),
         forward.clone(),
         app_ctx.clone(),
@@ -2074,14 +2186,23 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
     );
 
     // Tell CEF when the view is resized so it re-renders at the new size.
+    // `gtk::Picture` exposes no resize signal (unlike `GtkDrawingArea`), so we
+    // poll its allocated size on each frame clock tick and notify CEF only when
+    // it actually changes. This fires for window resizes and layout changes.
     {
         let shared = shared.clone();
-        area.connect_resize(move |_area, _w, _h| {
-            if let Some(browser) = shared.browser.borrow().as_ref() {
-                if let Some(host) = browser.host() {
-                    host.was_resized();
+        let last = std::cell::Cell::new((0i32, 0i32));
+        picture.add_tick_callback(move |pic, _clock| {
+            let size = (pic.width(), pic.height());
+            if size != last.get() {
+                last.set(size);
+                if let Some(browser) = shared.browser.borrow().as_ref() {
+                    if let Some(host) = browser.host() {
+                        host.was_resized();
+                    }
                 }
             }
+            gtk::glib::ControlFlow::Continue
         });
     }
 
@@ -2089,7 +2210,7 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
     // e.g. moving the window between monitors of different DPI.
     {
         let shared = shared.clone();
-        area.connect_scale_factor_notify(move |_area| {
+        picture.connect_scale_factor_notify(move |_picture| {
             if let Some(browser) = shared.browser.borrow().as_ref() {
                 if let Some(host) = browser.host() {
                     host.notify_screen_info_changed();
@@ -2100,8 +2221,6 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
     }
 
     // --- Input forwarding (#11 it.2): mouse, scroll, keyboard, focus. ---
-    area.set_focusable(true);
-
     let motion = gtk::EventControllerMotion::new();
     {
         let shared = shared.clone();
@@ -2112,15 +2231,15 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
             });
         });
     }
-    area.add_controller(motion);
+    picture.add_controller(motion);
 
     let click = gtk::GestureClick::new();
     click.set_button(0); // listen for all buttons
     {
         let shared = shared.clone();
-        let area = area.clone();
+        let picture = picture.clone();
         click.connect_pressed(move |gesture, n_press, x, y| {
-            area.grab_focus();
+            picture.grab_focus();
             let button = map_button(gesture.current_button());
             with_host(&shared, |h| {
                 h.set_focus(1);
@@ -2147,7 +2266,7 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
             });
         });
     }
-    area.add_controller(click);
+    picture.add_controller(click);
 
     let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
     {
@@ -2172,7 +2291,7 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
             gtk::glib::Propagation::Stop
         });
     }
-    area.add_controller(scroll);
+    picture.add_controller(scroll);
 
     let keys = gtk::EventControllerKey::new();
     {
@@ -2271,8 +2390,8 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
             });
         });
     }
-    area.add_controller(keys);
-    area.grab_focus();
+    picture.add_controller(keys);
+    picture.grab_focus();
 }
 
 /// Initialize CEF (off-screen) and run the GNOME window, pumping CEF from the
