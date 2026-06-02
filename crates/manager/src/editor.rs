@@ -12,7 +12,25 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::{gio, glib};
 use qwa_core::manifest::SiteInfo;
-use qwa_core::{icon, launcher, Category, LinkScope, WebApp};
+use qwa_core::{icon, launcher, Category, ColorScheme, LinkScope, WebApp};
+
+/// Map a `ColorScheme` to its dropdown row index (order matches the model).
+fn color_scheme_to_index(scheme: ColorScheme) -> u32 {
+    match scheme {
+        ColorScheme::System => 0,
+        ColorScheme::Light => 1,
+        ColorScheme::Dark => 2,
+    }
+}
+
+/// Map a dropdown row index back to a `ColorScheme`.
+fn color_scheme_from_index(index: u32) -> ColorScheme {
+    match index {
+        1 => ColorScheme::Light,
+        2 => ColorScheme::Dark,
+        _ => ColorScheme::System,
+    }
+}
 
 /// Map a `LinkScope` to its dropdown row index (order matches `link_model`).
 fn link_scope_to_index(scope: LinkScope) -> u32 {
@@ -143,6 +161,19 @@ pub fn present<F: Fn() + 'static>(
             .unwrap_or_default(),
     ));
 
+    // Appearance override (forces the site's prefers-color-scheme + chrome).
+    let appearance_model = gtk::StringList::new(&["Follow system", "Light", "Dark"]);
+    let appearance_row = adw::ComboRow::builder()
+        .title("Appearance")
+        .model(&appearance_model)
+        .build();
+    appearance_row.set_selected(color_scheme_to_index(
+        existing
+            .as_ref()
+            .map(|a| a.color_scheme)
+            .unwrap_or_default(),
+    ));
+
     // "Set as default for…" toggles, rebuilt from the URL (email for web mail,
     // calendar for web calendars, nothing otherwise).
     let handlers_group = adw::PreferencesGroup::builder()
@@ -170,6 +201,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&profile_combo);
     group.add(&icon_row);
     group.add(&link_row);
+    group.add(&appearance_row);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
@@ -351,6 +383,8 @@ pub fn present<F: Fn() + 'static>(
         profile_combo,
         #[weak]
         link_row,
+        #[weak]
+        appearance_row,
         #[strong]
         role_switches,
         #[strong]
@@ -398,6 +432,7 @@ pub fn present<F: Fn() + 'static>(
             app.link_scope = Some(scope);
             // Keep the legacy bool in sync so older runner builds still behave.
             app.external_links_in_browser = scope != qwa_core::LinkScope::InWindow;
+            app.color_scheme = color_scheme_from_index(appearance_row.selected());
             app.handlers = role_switches
                 .borrow()
                 .iter()

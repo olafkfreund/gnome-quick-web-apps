@@ -204,7 +204,7 @@ pub fn stays_in_window(target: &str, scope: Option<&str>, home: &str, mode: Link
     }
 }
 
-pub use webapp::{Category, LinkScope, WebApp, WindowSize};
+pub use webapp::{Category, ColorScheme, LinkScope, WebApp, WindowSize};
 
 #[cfg(test)]
 mod scope_tests {

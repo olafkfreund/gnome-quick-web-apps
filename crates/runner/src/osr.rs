@@ -160,6 +160,20 @@ wrap_app! {
                 // blank. Software compositing paints reliably.
                 cmd.append_switch(Some(&CefString::from("disable-gpu")));
                 cmd.append_switch(Some(&CefString::from("disable-gpu-compositing")));
+
+                // Force the page's `prefers-color-scheme` when the app overrides
+                // it. blink PreferredColorScheme: kDark=0, kLight=1.
+                match crate::app::current_app().map(|a| a.color_scheme) {
+                    Some(qwa_core::ColorScheme::Dark) => cmd.append_switch_with_value(
+                        Some(&CefString::from("blink-settings")),
+                        Some(&CefString::from("preferredColorScheme=0")),
+                    ),
+                    Some(qwa_core::ColorScheme::Light) => cmd.append_switch_with_value(
+                        Some(&CefString::from("blink-settings")),
+                        Some(&CefString::from("preferredColorScheme=1")),
+                    ),
+                    _ => {}
+                }
             }
         }
     }
@@ -520,6 +534,7 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         .unwrap_or_else(|| webapp.url.clone());
     let title = webapp.name.clone();
     let app_id = webapp.id.clone();
+    let color_scheme = webapp.color_scheme;
     // Restore last-session geometry + zoom; fall back to the configured size.
     let (init_w, init_h, init_max) = match load_window_state(&webapp.id) {
         Some((m, w, h, z)) => {
@@ -530,6 +545,18 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
     };
 
     application.connect_activate(move |app| {
+        // Match the window chrome to a forced color scheme (web content is
+        // handled separately via the blink preferredColorScheme switch).
+        match color_scheme {
+            qwa_core::ColorScheme::Light => {
+                adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceLight)
+            }
+            qwa_core::ColorScheme::Dark => {
+                adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark)
+            }
+            qwa_core::ColorScheme::System => {}
+        }
+
         let header = adw::HeaderBar::new();
 
         // Navigation controls. Back/forward start insensitive and are toggled

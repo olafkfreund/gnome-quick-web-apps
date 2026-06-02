@@ -26,6 +26,17 @@ pub enum LinkScope {
     ExactHost,
 }
 
+/// Per-app appearance override for `prefers-color-scheme` and the window chrome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorScheme {
+    /// Follow the system (no override).
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WindowSize(pub WindowWidth, pub WindowHeight);
 
@@ -177,6 +188,9 @@ pub struct WebApp {
     /// Apply the bundled content-filter (adblock) ruleset.
     #[serde(default)]
     pub adblock: bool,
+    /// Force light/dark appearance for the site, overriding the system theme.
+    #[serde(default)]
+    pub color_scheme: ColorScheme,
 }
 
 impl WebApp {
@@ -205,6 +219,7 @@ impl WebApp {
             handlers: Vec::new(),
             window: WindowSize::default(),
             adblock: false,
+            color_scheme: ColorScheme::System,
         }
     }
 
