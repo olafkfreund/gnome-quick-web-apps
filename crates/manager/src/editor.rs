@@ -176,7 +176,7 @@ pub fn present<F: Fn() + 'static>(
 
     // Block ads/trackers (a curated network blocklist). Off by default.
     let adblock_switch = adw::SwitchRow::builder()
-        .title("Block ads & trackers")
+        .title("Block ads and trackers")
         .active(existing.as_ref().map(|a| a.adblock).unwrap_or(false))
         .build();
 
@@ -195,7 +195,7 @@ pub fn present<F: Fn() + 'static>(
 
     // Permission policy: sensitive capabilities are denied unless allowed here.
     let camera_switch = adw::SwitchRow::builder()
-        .title("Allow camera & microphone")
+        .title("Allow camera and microphone")
         .active(
             existing
                 .as_ref()
