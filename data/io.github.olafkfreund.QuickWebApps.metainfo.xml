@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.5" date="2026-06-02">
+      <description>
+        <p>Camera and microphone now work for video calls (Teams, Zoom, Meet) and are allowed by default. Adds a portable AppImage build for any distribution. Fixes blank toggle labels and makes the link-handling options readable.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-06-02">
       <description>
         <p>A big round of per-app controls and fixes: built-in ad/tracker blocker, force light/dark appearance, custom CSS, background-app mode (keep running for notifications), downloads to your Downloads folder, and a colored login-profile indicator in the manager and window. Permission policy for camera/mic and location, crisper rendering under fractional/HiDPI scaling, more reliable launcher paths, and groundwork for safe config migrations.</p>
