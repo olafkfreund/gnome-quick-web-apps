@@ -9,6 +9,23 @@ use crate::paths;
 pub type WindowWidth = u32;
 pub type WindowHeight = u32;
 
+/// How in-app navigation to another page is handled — the tri-state successor
+/// to the old `external_links_in_browser` bool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkScope {
+    /// Everything loads in the app window — never diverted. Best for apps whose
+    /// sign-in spans multiple domains (Microsoft, Slack SSO).
+    #[default]
+    InWindow,
+    /// Links to a *different registrable domain* open in the system browser;
+    /// sibling subdomains stay in-window.
+    SameSite,
+    /// Links to a *different host* open in the system browser; only the exact
+    /// site stays in-window. Best for webmail (Gmail's `google.com/url` leaves).
+    ExactHost,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WindowSize(pub WindowWidth, pub WindowHeight);
 
@@ -147,6 +164,10 @@ pub struct WebApp {
     /// Microsoft's) stays in the app window.
     #[serde(default)]
     pub external_links_in_browser: bool,
+    /// Tri-state link handling. `None` falls back to `external_links_in_browser`
+    /// (true => ExactHost) so older app files keep working.
+    #[serde(default)]
+    pub link_scope: Option<LinkScope>,
     /// URL-scheme handlers this app is registered as the system default for
     /// (e.g. mailto, webcal). Each carries the target URL template.
     #[serde(default)]
@@ -180,6 +201,7 @@ impl WebApp {
             profile: None,
             mobile: false,
             external_links_in_browser: false,
+            link_scope: None,
             handlers: Vec::new(),
             window: WindowSize::default(),
             adblock: false,
@@ -207,6 +229,17 @@ impl WebApp {
                 let _ = std::fs::remove_dir_all(profile);
             }
         }
+    }
+
+    /// Effective link-handling mode: the explicit `link_scope`, else derived
+    /// from the legacy `external_links_in_browser` bool (true => ExactHost).
+    pub fn link_scope(&self) -> LinkScope {
+        self.link_scope
+            .unwrap_or(if self.external_links_in_browser {
+                LinkScope::ExactHost
+            } else {
+                LinkScope::InWindow
+            })
     }
 
     /// The session/cache key: the shared `profile` if set, else the app `id`

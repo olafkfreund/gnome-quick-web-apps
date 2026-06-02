@@ -266,24 +266,17 @@ wrap_life_span_handler! {
                     return 1;
                 }
                 let app = crate::app::current_app();
-                let external = app.as_ref().map(|a| a.external_links_in_browser).unwrap_or(false);
+                let mode = app.as_ref().map(|a| a.link_scope()).unwrap_or_default();
                 let scope = app.as_ref().and_then(|a| a.scope.clone());
                 let app_url = app.map(|a| a.url).unwrap_or_default();
                 let home = crate::app::current_page_url(browser.as_deref_mut()).unwrap_or(app_url);
 
-                // A user-opened popup to a DIFFERENT host means "leave the app"
-                // (a link in an email, an off-site button). With external mode
-                // on, hand those to the system browser. We match on host, not
-                // registrable domain, so Gmail's same-domain link redirector
-                // (www.google.com/url?q=...) also leaves — while same-host
-                // pop-outs (compose, print) and in-scope pages stay in-window.
-                let same_app = qwa_core::host_eq(&url, &home)
-                    || scope
-                        .as_deref()
-                        .is_some_and(|s| qwa_core::is_in_scope(&url, Some(s), &home));
-                // Identity/SSO/CAPTCHA popups always stay in-window so sign-in
-                // works even with external-links mode on.
-                if external && !same_app && !qwa_core::is_infra_host(&url) {
+                // A user-opened popup leaves for the system browser only when it
+                // wouldn't stay in-window under this app's link-scope mode — the
+                // same predicate as on_before_browse (identity/SSO/CAPTCHA and
+                // in-scope hosts always stay; same-host pop-outs like compose
+                // stay too).
+                if !qwa_core::stays_in_window(&url, scope.as_deref(), &home, mode) {
                     if let Err(e) = open::that(&url) {
                         tracing::warn!("failed to open external url {url}: {e}");
                     }
@@ -349,7 +342,7 @@ wrap_request_handler! {
     struct OsrRequestHandler {
         shared: Rc<Shared>,
         scope: Option<String>,
-        external_in_browser: bool,
+        mode: qwa_core::LinkScope,
     }
 
     impl RequestHandler {
@@ -386,10 +379,9 @@ wrap_request_handler! {
                 return 1;
             }
 
-            // Diversion to the system browser is opt-in. Off by default so that
-            // multi-domain logins (e.g. Microsoft: outlook.cloud.microsoft ->
-            // login.microsoftonline.com -> login.live.com) stay in the window.
-            if !self.external_in_browser {
+            // InWindow mode never diverts — multi-domain logins (e.g. Microsoft:
+            // outlook -> login.microsoftonline -> login.live) stay in-window.
+            if self.mode == qwa_core::LinkScope::InWindow {
                 return 0;
             }
             // Until the app settles on its home, allow everything (initial load
@@ -398,18 +390,17 @@ wrap_request_handler! {
                 Some(h) => h,
                 None => return 0,
             };
-            // Only eject a *deliberate* top-level GET that leaves the app's
-            // site. Excluded so sign-in keeps working in-window:
+            // Only eject a *deliberate* top-level GET that leaves the app per its
+            // link-scope mode. Excluded so sign-in keeps working in-window:
             //   - non-GET (a form POST opened in the browser becomes a broken
             //     GET, e.g. Microsoft's AADSTS900561);
             //   - automatic cross-domain redirects (SSO token hops) — not
             //     gestures;
-            //   - known identity/SSO/CAPTCHA hosts (is_infra_host).
+            //   - identity/SSO/CAPTCHA + in-scope hosts (stays_in_window).
             if user_gesture == 1
                 && is_redirect == 0
                 && method.eq_ignore_ascii_case("GET")
-                && !qwa_core::is_infra_host(&url)
-                && !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home)
+                && !qwa_core::stays_in_window(&url, self.scope.as_deref(), &home, self.mode)
             {
                 if let Err(e) = open::that(&url) {
                     tracing::warn!("failed to open external url {url}: {e}");
@@ -462,10 +453,10 @@ wrap_client! {
         }
 
         fn request_handler(&self) -> Option<RequestHandler> {
-            let (scope, external) = crate::app::current_app()
-                .map(|a| (a.scope, a.external_links_in_browser))
-                .unwrap_or((None, false));
-            Some(OsrRequestHandler::new(self.shared.clone(), scope, external))
+            let (scope, mode) = crate::app::current_app()
+                .map(|a| (a.scope.clone(), a.link_scope()))
+                .unwrap_or((None, qwa_core::LinkScope::default()));
+            Some(OsrRequestHandler::new(self.shared.clone(), scope, mode))
         }
 
         fn load_handler(&self) -> Option<LoadHandler> {

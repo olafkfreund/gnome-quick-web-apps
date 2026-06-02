@@ -187,7 +187,24 @@ pub fn is_infra_host(target: &str) -> bool {
     EXACT.contains(&host.as_str()) || SUFFIX.iter().any(|s| host.ends_with(s))
 }
 
-pub use webapp::{Category, WebApp, WindowSize};
+/// Whether navigating to `target` should stay in the app window (vs. open in
+/// the system browser), under the app's link-handling `mode`. Identity/SSO/
+/// CAPTCHA hosts always stay. This is the single source of truth used by both
+/// the navigation and popup handlers.
+pub fn stays_in_window(target: &str, scope: Option<&str>, home: &str, mode: LinkScope) -> bool {
+    if is_infra_host(target) {
+        return true;
+    }
+    match mode {
+        LinkScope::InWindow => true,
+        LinkScope::SameSite => is_in_scope(target, scope, home),
+        LinkScope::ExactHost => {
+            host_eq(target, home) || scope.is_some_and(|s| !s.is_empty() && target.starts_with(s))
+        }
+    }
+}
+
+pub use webapp::{Category, LinkScope, WebApp, WindowSize};
 
 #[cfg(test)]
 mod scope_tests {

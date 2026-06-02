@@ -12,7 +12,25 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::{gio, glib};
 use qwa_core::manifest::SiteInfo;
-use qwa_core::{icon, launcher, Category, WebApp};
+use qwa_core::{icon, launcher, Category, LinkScope, WebApp};
+
+/// Map a `LinkScope` to its dropdown row index (order matches `link_model`).
+fn link_scope_to_index(scope: LinkScope) -> u32 {
+    match scope {
+        LinkScope::InWindow => 0,
+        LinkScope::SameSite => 1,
+        LinkScope::ExactHost => 2,
+    }
+}
+
+/// Map a dropdown row index back to a `LinkScope`.
+fn link_scope_from_index(index: u32) -> LinkScope {
+    match index {
+        1 => LinkScope::SameSite,
+        2 => LinkScope::ExactHost,
+        _ => LinkScope::InWindow,
+    }
+}
 
 /// Open the editor over `parent`. `existing` = None creates a new app; Some
 /// edits it in place. `on_saved` is called after a successful save.
@@ -107,17 +125,23 @@ pub fn present<F: Fn() + 'static>(
     icon_row.add_suffix(&search_icon_btn);
     icon_row.add_suffix(&choose_btn);
 
-    // Off by default so multi-domain logins (e.g. Microsoft) stay in-window.
-    let external_switch = adw::SwitchRow::builder()
-        .title("Open external links in browser")
-        .subtitle("Turn off if first-time login opens a browser tab")
-        .active(
-            existing
-                .as_ref()
-                .map(|a| a.external_links_in_browser)
-                .unwrap_or(false),
-        )
+    // Link handling (tri-state). InWindow is the safe default for multi-domain
+    // logins (Microsoft/Slack SSO). Order must match `link_scope_from_index`.
+    let link_model = gtk::StringList::new(&[
+        "Open everything in this window",
+        "Open other sites in browser (keep sibling subdomains)",
+        "Open other sites in browser (this exact site only)",
+    ]);
+    let link_row = adw::ComboRow::builder()
+        .title("Links to other sites")
+        .model(&link_model)
         .build();
+    link_row.set_selected(link_scope_to_index(
+        existing
+            .as_ref()
+            .map(|a| a.link_scope())
+            .unwrap_or_default(),
+    ));
 
     // "Set as default for…" toggles, rebuilt from the URL (email for web mail,
     // calendar for web calendars, nothing otherwise).
@@ -145,7 +169,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&cat_row);
     group.add(&profile_combo);
     group.add(&icon_row);
-    group.add(&external_switch);
+    group.add(&link_row);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
@@ -326,7 +350,7 @@ pub fn present<F: Fn() + 'static>(
         #[weak]
         profile_combo,
         #[weak]
-        external_switch,
+        link_row,
         #[strong]
         role_switches,
         #[strong]
@@ -370,7 +394,10 @@ pub fn present<F: Fn() + 'static>(
                     a
                 }
             };
-            app.external_links_in_browser = external_switch.is_active();
+            let scope = link_scope_from_index(link_row.selected());
+            app.link_scope = Some(scope);
+            // Keep the legacy bool in sync so older runner builds still behave.
+            app.external_links_in_browser = scope != qwa_core::LinkScope::InWindow;
             app.handlers = role_switches
                 .borrow()
                 .iter()
