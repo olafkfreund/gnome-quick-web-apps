@@ -422,6 +422,8 @@ wrap_life_span_handler! {
             *self.shared.browser.borrow_mut() = None;
             // Drop this window's MPRIS player (unregister objects + bus name).
             mpris_remove(&self.app.id);
+            // Drop this window's StatusNotifier tray item, if it had one.
+            tray_remove(&self.app.id);
         }
     }
 }
@@ -839,6 +841,16 @@ thread_local! {
     /// the same thread CEF is pumped from — so they never need to capture the
     /// non-`Send` `Rc<Shared>`/`Browser` directly.
     static PLAYERS: RefCell<HashMap<String, MprisPlayer>> = RefCell::new(HashMap::new());
+
+    /// Per-window StatusNotifier tray items, keyed by the window's app id.
+    /// Registered when a background-mode window opens, removed when it closes.
+    /// Mirrors PLAYERS: the registered D-Bus closures capture only the `String`
+    /// app id and resolve the item via this registry on the GTK main thread.
+    static TRAYS: RefCell<HashMap<String, TrayItem>> = RefCell::new(HashMap::new());
+
+    /// Monotonic counter making each tray item's bus name unique within this
+    /// process (`org.kde.StatusNotifierItem-<pid>-<n>`).
+    static TRAY_SEQ: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 wrap_display_handler! {
@@ -1410,6 +1422,430 @@ fn mpris_remove(app_id: &str) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// StatusNotifier tray icon (per background-mode window)
+//
+// Background-mode apps get a tray icon (org.kde.StatusNotifierItem) with a tiny
+// DBusMenu ("Show" / "Quit"), so they can be re-shown after the window is
+// hidden and genuinely quit. The item is registered with the
+// org.kde.StatusNotifierWatcher; without a watcher (bare GNOME with no
+// AppIndicator extension) registration just no-ops and the app runs normally.
+//
+// Same `Send` strategy as MPRIS: the gio register_object closures capture only
+// the window's `String` app id and resolve the live window via TRAYS on the GTK
+// main thread (where all gio D-Bus callbacks land). Activate and the menu's
+// Show/Quit reach the window through TrayItem's `Rc<Shared>` weak window handle.
+// ---------------------------------------------------------------------------
+
+/// One window's tray presence: the registration ids + bus name needed to tear
+/// it down, plus the window's `Rc<Shared>` so Activate / menu actions can
+/// present or close it, and the display fields the SNI properties expose.
+struct TrayItem {
+    name: String,
+    icon_name: String,
+    desktop_entry: String,
+    shared: Rc<Shared>,
+    owner_id: gio::OwnerId,
+    item_reg: gio::RegistrationId,
+    menu_reg: gio::RegistrationId,
+}
+
+/// Object paths the SNI + DBusMenu interfaces are registered at.
+const SNI_ITEM_PATH: &str = "/StatusNotifierItem";
+const SNI_MENU_PATH: &str = "/MenuBar";
+
+/// Menu item ids the DBusMenu exposes (0 is the implicit root).
+const MENU_ID_SHOW: i32 = 1;
+const MENU_ID_QUIT: i32 = 2;
+
+/// Introspection XML for the org.kde.StatusNotifierItem interface. Only the
+/// members GNOME/AppIndicator/KDE actually read are declared.
+const SNI_XML: &str = r#"<node>
+  <interface name="org.kde.StatusNotifierItem">
+    <property name="Category" type="s" access="read"/>
+    <property name="Id" type="s" access="read"/>
+    <property name="Title" type="s" access="read"/>
+    <property name="Status" type="s" access="read"/>
+    <property name="IconName" type="s" access="read"/>
+    <property name="IconThemePath" type="s" access="read"/>
+    <property name="ToolTip" type="(sa(iiay)ss)" access="read"/>
+    <property name="ItemIsMenu" type="b" access="read"/>
+    <property name="Menu" type="o" access="read"/>
+    <method name="Activate">
+      <arg name="x" type="i" direction="in"/>
+      <arg name="y" type="i" direction="in"/>
+    </method>
+    <method name="SecondaryActivate">
+      <arg name="x" type="i" direction="in"/>
+      <arg name="y" type="i" direction="in"/>
+    </method>
+    <method name="ContextMenu">
+      <arg name="x" type="i" direction="in"/>
+      <arg name="y" type="i" direction="in"/>
+    </method>
+    <method name="Scroll">
+      <arg name="delta" type="i" direction="in"/>
+      <arg name="orientation" type="s" direction="in"/>
+    </method>
+    <signal name="NewIcon"/>
+    <signal name="NewToolTip"/>
+    <signal name="NewStatus"><arg name="status" type="s"/></signal>
+  </interface>
+</node>"#;
+
+/// Introspection XML for the minimal com.canonical.dbusmenu we back: a flat
+/// two-entry menu ("Show", "Quit") via GetLayout + Event + AboutToShow.
+const DBUSMENU_XML: &str = r#"<node>
+  <interface name="com.canonical.dbusmenu">
+    <property name="Version" type="u" access="read"/>
+    <property name="Status" type="s" access="read"/>
+    <method name="GetLayout">
+      <arg name="parentId" type="i" direction="in"/>
+      <arg name="recursionDepth" type="i" direction="in"/>
+      <arg name="propertyNames" type="as" direction="in"/>
+      <arg name="revision" type="u" direction="out"/>
+      <arg name="layout" type="(ia{sv}av)" direction="out"/>
+    </method>
+    <method name="GetGroupProperties">
+      <arg name="ids" type="ai" direction="in"/>
+      <arg name="propertyNames" type="as" direction="in"/>
+      <arg name="properties" type="a(ia{sv})" direction="out"/>
+    </method>
+    <method name="Event">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="eventId" type="s" direction="in"/>
+      <arg name="data" type="v" direction="in"/>
+      <arg name="timestamp" type="u" direction="in"/>
+    </method>
+    <method name="AboutToShow">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="needUpdate" type="b" direction="out"/>
+    </method>
+    <signal name="LayoutUpdated">
+      <arg name="revision" type="u"/>
+      <arg name="parent" type="i"/>
+    </signal>
+  </interface>
+</node>"#;
+
+/// Look up an SNI property for the tray item keyed by `app_id`.
+fn sni_get_property(app_id: &str, prop: &str) -> gtk::glib::Variant {
+    use gtk::glib::prelude::ToVariant;
+    TRAYS.with(|trays| {
+        let trays = trays.borrow();
+        let item = trays.get(app_id);
+        match prop {
+            "Category" => "ApplicationStatus".to_variant(),
+            "Id" => app_id.to_variant(),
+            "Title" => item
+                .map(|i| i.name.clone())
+                .unwrap_or_default()
+                .to_variant(),
+            "Status" => "Active".to_variant(),
+            "IconName" => item
+                .map(|i| i.icon_name.clone())
+                .unwrap_or_else(|| "applications-internet".to_string())
+                .to_variant(),
+            "IconThemePath" => String::new().to_variant(),
+            "ToolTip" => {
+                // (sa(iiay)ss): icon-name, icon-data (empty), title, body.
+                let icon_name = item
+                    .map(|i| i.icon_name.clone())
+                    .unwrap_or_else(|| "applications-internet".to_string());
+                let title = item.map(|i| i.name.clone()).unwrap_or_default();
+                let icon_data: Vec<(i32, i32, Vec<u8>)> = Vec::new();
+                (icon_name, icon_data, title, String::new()).to_variant()
+            }
+            "ItemIsMenu" => false.to_variant(),
+            "Menu" => gtk::glib::variant::ObjectPath::try_from(SNI_MENU_PATH)
+                .map(|p| p.to_variant())
+                .unwrap_or_else(|_| SNI_MENU_PATH.to_variant()),
+            _ => String::new().to_variant(),
+        }
+    })
+}
+
+/// Present (show + raise) the window for the tray item keyed by `app_id`.
+fn tray_show(app_id: &str) {
+    TRAYS.with(|trays| {
+        if let Some(item) = trays.borrow().get(app_id) {
+            if let Some(win) = item
+                .shared
+                .window
+                .borrow()
+                .as_ref()
+                .and_then(|w| w.upgrade())
+            {
+                win.set_visible(true);
+                win.present();
+            }
+        }
+    });
+}
+
+/// Close the window for the tray item keyed by `app_id` for real. The window's
+/// close handler hides background apps, so force it shut by clearing the
+/// background flag is not possible here; instead destroy the window directly.
+fn tray_quit(app_id: &str) {
+    TRAYS.with(|trays| {
+        if let Some(item) = trays.borrow().get(app_id) {
+            if let Some(win) = item
+                .shared
+                .window
+                .borrow()
+                .as_ref()
+                .and_then(|w| w.upgrade())
+            {
+                // `destroy` bypasses the close-request handler (which would just
+                // hide a background app), so the window genuinely goes away and
+                // its on_before_close tears the browser + tray down.
+                win.destroy();
+            }
+        }
+    });
+}
+
+/// Build the DBusMenu `GetLayout` return value: `(u(ia{sv}av))` — a revision and
+/// a root node whose children are the "Show" and "Quit" entries.
+fn dbusmenu_layout() -> gtk::glib::Variant {
+    use gtk::glib::prelude::ToVariant;
+
+    // One leaf menu item: (id, properties a{sv}, children av [empty]).
+    fn entry(id: i32, label: &str) -> gtk::glib::Variant {
+        let mut props: HashMap<String, gtk::glib::Variant> = HashMap::new();
+        props.insert("label".to_string(), label.to_variant());
+        props.insert("enabled".to_string(), true.to_variant());
+        props.insert("visible".to_string(), true.to_variant());
+        let children: Vec<gtk::glib::Variant> = Vec::new();
+        (id, props, children).to_variant()
+    }
+
+    // Root node (id 0) with the two entries as children. Children are `av`, so
+    // each child node is boxed in a variant.
+    let mut root_props: HashMap<String, gtk::glib::Variant> = HashMap::new();
+    root_props.insert(
+        "children-display".to_string(),
+        "submenu".to_string().to_variant(),
+    );
+    let children = vec![
+        gtk::glib::Variant::from_variant(&entry(MENU_ID_SHOW, "Show")),
+        gtk::glib::Variant::from_variant(&entry(MENU_ID_QUIT, "Quit")),
+    ];
+    let root = (0i32, root_props, children).to_variant();
+    (0u32, root).to_variant()
+}
+
+/// Handle a DBusMenu `Event`: a "clicked" on Show/Quit drives the window.
+fn dbusmenu_event(app_id: &str, id: i32, event_id: &str) {
+    if event_id != "clicked" {
+        return;
+    }
+    match id {
+        MENU_ID_SHOW => tray_show(app_id),
+        MENU_ID_QUIT => tray_quit(app_id),
+        _ => {}
+    }
+}
+
+/// Register a StatusNotifier tray item for a background-mode window. Best-effort:
+/// any failure (no session bus, registration error, absent watcher) logs and
+/// leaves the app running normally.
+fn tray_register(app: &WebApp, shared: &Rc<Shared>) {
+    DBUS.with(|c| {
+        let Some(conn) = c.borrow().clone() else {
+            return; // no session bus -> no tray, app still runs
+        };
+
+        let app_id = app.id.clone();
+        if TRAYS.with(|t| t.borrow().contains_key(&app_id)) {
+            return;
+        }
+
+        let item_node = match gio::DBusNodeInfo::for_xml(SNI_XML) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!("invalid SNI introspection xml: {e}");
+                return;
+            }
+        };
+        let menu_node = match gio::DBusNodeInfo::for_xml(DBUSMENU_XML) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!("invalid dbusmenu introspection xml: {e}");
+                return;
+            }
+        };
+        let Some(item_iface) = item_node.lookup_interface("org.kde.StatusNotifierItem") else {
+            return;
+        };
+        let Some(menu_iface) = menu_node.lookup_interface("com.canonical.dbusmenu") else {
+            return;
+        };
+
+        // org.kde.StatusNotifierItem: Activate/menu pointers + properties.
+        let item_reg = {
+            let id_for_call = app_id.clone();
+            let id_for_get = app_id.clone();
+            match conn
+                .register_object(SNI_ITEM_PATH, &item_iface)
+                .method_call(move |_conn, _sender, _path, _iface, method, _params, inv| {
+                    // Activate / SecondaryActivate present the window; the rest
+                    // (ContextMenu/Scroll) are no-ops.
+                    if method == "Activate" || method == "SecondaryActivate" {
+                        tray_show(&id_for_call);
+                    }
+                    inv.return_value(None);
+                })
+                .property(move |_conn, _sender, _path, _iface, prop| {
+                    sni_get_property(&id_for_get, prop)
+                })
+                .build()
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::warn!("failed to register SNI item object: {e}");
+                    return;
+                }
+            }
+        };
+
+        // com.canonical.dbusmenu: GetLayout / Event / AboutToShow.
+        let menu_reg = {
+            let id_for_call = app_id.clone();
+            match conn
+                .register_object(SNI_MENU_PATH, &menu_iface)
+                .method_call(move |_conn, _sender, _path, _iface, method, params, inv| {
+                    match method {
+                        "GetLayout" => inv.return_value(Some(&dbusmenu_layout())),
+                        "GetGroupProperties" => {
+                            // Return an empty a(ia{sv}); clients re-query via
+                            // GetLayout, which carries the labels we need.
+                            use gtk::glib::prelude::ToVariant;
+                            let empty: Vec<(i32, HashMap<String, gtk::glib::Variant>)> = Vec::new();
+                            inv.return_value(Some(&(empty,).to_variant()));
+                        }
+                        "Event" => {
+                            // params: (i id, s eventId, v data, u timestamp).
+                            let id: i32 = params.try_child_get(0).ok().flatten().unwrap_or(0);
+                            let event_id: String =
+                                params.try_child_get(1).ok().flatten().unwrap_or_default();
+                            dbusmenu_event(&id_for_call, id, &event_id);
+                            inv.return_value(None);
+                        }
+                        "AboutToShow" => {
+                            use gtk::glib::prelude::ToVariant;
+                            inv.return_value(Some(&(false,).to_variant()));
+                        }
+                        _ => inv.return_value(None),
+                    }
+                })
+                .property(|_conn, _sender, _path, _iface, prop| {
+                    use gtk::glib::prelude::ToVariant;
+                    match prop {
+                        "Version" => 3u32.to_variant(),
+                        "Status" => "normal".to_string().to_variant(),
+                        _ => String::new().to_variant(),
+                    }
+                })
+                .build()
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::warn!("failed to register dbusmenu object: {e}");
+                    let _ = conn.unregister_object(item_reg);
+                    return;
+                }
+            }
+        };
+
+        // Own a unique bus name and register it with the watcher.
+        let seq = TRAY_SEQ.with(|s| {
+            let n = s.get();
+            s.set(n + 1);
+            n
+        });
+        let pid = std::process::id();
+        let bus_name = format!("org.kde.StatusNotifierItem-{pid}-{seq}");
+        let owner_id = gio::bus_own_name_on_connection(
+            &conn,
+            &bus_name,
+            gio::BusNameOwnerFlags::NONE,
+            {
+                // On name acquisition, register with the watcher (best-effort).
+                let conn = conn.clone();
+                let bus_name = bus_name.clone();
+                move |_c, _n| tray_register_with_watcher(&conn, &bus_name)
+            },
+            |_c, _n| {},
+        );
+
+        TRAYS.with(|trays| {
+            trays.borrow_mut().insert(
+                app_id.clone(),
+                TrayItem {
+                    name: app.name.clone(),
+                    icon_name: tray_icon_name(app),
+                    desktop_entry: format!("{}.{}", qwa_core::APP_ID, app.id),
+                    shared: shared.clone(),
+                    owner_id,
+                    item_reg,
+                    menu_reg,
+                },
+            );
+        });
+        tracing::info!("registered StatusNotifier tray item {bus_name}");
+    });
+}
+
+/// The icon-name an SNI item advertises. CEF apps install a themed icon under
+/// the desktop id, so try that first; fall back to a safe stock web-app icon.
+fn tray_icon_name(app: &WebApp) -> String {
+    // The DynamicLauncher install registers the icon under the desktop id, so a
+    // themed lookup of `<APP_ID>.<id>` usually resolves. The fallback keeps the
+    // tray usable even when no themed icon is found.
+    format!("{}.{}", qwa_core::APP_ID, app.id)
+}
+
+/// Best-effort call to org.kde.StatusNotifierWatcher.RegisterStatusNotifierItem
+/// with our item's bus name. A missing watcher (bare GNOME) just logs at debug.
+fn tray_register_with_watcher(conn: &gio::DBusConnection, bus_name: &str) {
+    use gtk::glib::prelude::ToVariant;
+    let params = (bus_name.to_string(),).to_variant();
+    conn.call(
+        Some("org.kde.StatusNotifierWatcher"),
+        "/StatusNotifierWatcher",
+        "org.kde.StatusNotifierWatcher",
+        "RegisterStatusNotifierItem",
+        Some(&params),
+        None,
+        gio::DBusCallFlags::NONE,
+        -1,
+        gio::Cancellable::NONE,
+        move |res| {
+            if let Err(e) = res {
+                tracing::debug!("StatusNotifierWatcher unavailable (tray hidden): {e}");
+            }
+        },
+    );
+}
+
+/// Tear down a window's tray item on close: drop its registry entry, unregister
+/// both objects, and release the bus name.
+fn tray_remove(app_id: &str) {
+    let item = TRAYS.with(|trays| trays.borrow_mut().remove(app_id));
+    if let Some(item) = item {
+        let _ = &item.desktop_entry; // kept for parity / future SNI fields
+        DBUS.with(|c| {
+            if let Some(conn) = c.borrow().as_ref() {
+                let _ = conn.unregister_object(item.item_reg);
+                let _ = conn.unregister_object(item.menu_reg);
+            }
+        });
+        gio::bus_unown_name(item.owner_id);
+        tracing::info!("removed StatusNotifier tray item for {app_id}");
+    }
+}
+
 /// Build and present one app window (header + nav + profile cue + drawing area)
 /// and create its off-screen CEF browser. Each window owns its own `Shared`
 /// state and per-window `WebApp` context (threaded into the handlers), so one
@@ -1599,6 +2035,12 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
     // Record a weak handle to the window so the MPRIS player (created lazily on
     // first media message) can present/close it for Raise/Quit.
     *shared.window.borrow_mut() = Some(window.downgrade());
+
+    // Background-mode apps get a StatusNotifier tray item (Show / Quit) so they
+    // can be re-shown after the window is hidden and genuinely quit.
+    if background {
+        tray_register(&webapp, &shared);
+    }
 
     window.present();
 

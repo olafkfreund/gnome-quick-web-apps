@@ -217,6 +217,43 @@ fn is_readonly_managed(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Request (or revoke) autostart-on-login for `app` via the XDG **Background**
+/// portal. This is sandbox-safe (works under Flatpak) and consistent with the
+/// portal-based launcher install above.
+///
+/// The `commandline` relaunches the app by its installed `.desktop` id using
+/// `gtk-launch`, so it picks up whatever `Exec` the DynamicLauncher install
+/// wrote (AppImage `$APPIMAGE`, CEF `LD_LIBRARY_PATH`, dev-vs-installed runner
+/// path) without us reconstructing it here.
+///
+/// Best-effort: portal errors (no portal, denied, missing session) are logged
+/// and swallowed so saving an app never fails on autostart.
+pub async fn set_autostart(app: &WebApp, enabled: bool) -> Result<()> {
+    let desktop_id = format!("{}.{}", APP_ID, app.id);
+    let reason = format!("Run {} in the background", app.name);
+    let argv = ["gtk-launch".to_string(), desktop_id];
+
+    let result = ashpd::desktop::background::Background::request()
+        .reason(reason.as_str())
+        .auto_start(enabled)
+        .command(&argv)
+        .dbus_activatable(false)
+        .send()
+        .await
+        .and_then(|req| req.response());
+
+    match result {
+        Ok(resp) => tracing::info!(
+            "autostart for {}: requested={enabled} granted_autostart={} background={}",
+            app.id,
+            resp.auto_start(),
+            resp.run_in_background(),
+        ),
+        Err(e) => tracing::warn!("autostart request for {} failed (non-fatal): {e}", app.id),
+    }
+    Ok(())
+}
+
 /// Remove the launcher for `app`.
 pub async fn uninstall(app: &WebApp) -> Result<()> {
     let proxy = DynamicLauncherProxy::new()

@@ -252,6 +252,12 @@ pub fn present<F: Fn() + 'static>(
                 .unwrap_or(false),
         )
         .build();
+    // Launch the app automatically on login (via the XDG Background portal).
+    let autostart_switch = adw::SwitchRow::builder()
+        .title("Start on login")
+        .subtitle("Launch automatically when you log in")
+        .active(existing.as_ref().map(|a| a.autostart).unwrap_or(false))
+        .build();
 
     // Permission policy: sensitive capabilities are denied unless allowed here.
     let camera_switch = adw::SwitchRow::builder()
@@ -327,6 +333,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&ua_entry);
     group.add(&adblock_switch);
     group.add(&background_switch);
+    group.add(&autostart_switch);
     group.add(&camera_switch);
     group.add(&location_switch);
     group.add(&badge_switch);
@@ -523,6 +530,8 @@ pub fn present<F: Fn() + 'static>(
         #[weak]
         background_switch,
         #[weak]
+        autostart_switch,
+        #[weak]
         camera_switch,
         #[weak]
         location_switch,
@@ -583,6 +592,7 @@ pub fn present<F: Fn() + 'static>(
             app.mobile = ua_mobile;
             app.adblock = adblock_switch.is_active();
             app.run_in_background = background_switch.is_active();
+            app.autostart = autostart_switch.is_active();
             app.allow_camera_mic = camera_switch.is_active();
             app.allow_location = location_switch.is_active();
             app.show_badge = badge_switch.is_active();
@@ -888,6 +898,10 @@ fn finalize_async(
         if !app.handlers.is_empty() {
             launcher::set_as_default_handlers(&app);
         }
+        // Reflect the autostart-on-login choice via the Background portal. The
+        // launcher must be installed first so its `.desktop` id resolves.
+        // Best-effort: errors are logged inside `set_autostart`.
+        let _ = launcher::set_autostart(&app, app.autostart).await;
     });
 }
 

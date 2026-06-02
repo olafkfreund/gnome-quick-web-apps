@@ -232,6 +232,10 @@ pub struct WebApp {
     /// pre-enable it.
     #[serde(default)]
     pub show_badge: bool,
+    /// Start this app automatically when the user logs in (via the XDG
+    /// Background portal). Default false; pairs with `run_in_background`.
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 impl WebApp {
@@ -266,6 +270,7 @@ impl WebApp {
             allow_camera_mic: true,
             allow_location: false,
             show_badge: false,
+            autostart: false,
         }
     }
 
