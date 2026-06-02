@@ -69,7 +69,7 @@ pub fn present<F: Fn() + 'static>(
         })
         .modal(true)
         .transient_for(parent)
-        .default_width(480)
+        .default_width(560)
         .default_height(440)
         .build();
 
@@ -146,12 +146,13 @@ pub fn present<F: Fn() + 'static>(
     // Link handling (tri-state). InWindow is the safe default for multi-domain
     // logins (Microsoft/Slack SSO). Order must match `link_scope_from_index`.
     let link_model = gtk::StringList::new(&[
-        "Open everything in this window",
-        "Open other sites in browser (keep sibling subdomains)",
-        "Open other sites in browser (this exact site only)",
+        "Keep in this window",
+        "Other domains in browser",
+        "Other hosts in browser",
     ]);
     let link_row = adw::ComboRow::builder()
         .title("Links to other sites")
+        .subtitle("Where links that leave this site open")
         .model(&link_model)
         .build();
     link_row.set_selected(link_scope_to_index(
