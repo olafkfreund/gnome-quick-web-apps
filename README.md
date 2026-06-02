@@ -66,12 +66,48 @@ window with its own profile and its own dock identity.
 | Setup | type everything manually | **paste a URL → form autofills** from the PWA manifest |
 | Icons | pick from Papirus / lettered | **auto-downloaded** best manifest/apple-touch icon, lettered fallback |
 | Navigation | open browser window | **scope confinement** — off-scope links open in your system browser |
-| Per-app | basic | per-app **user agent, adblock, zoom, custom CSS** |
+| Per-app | basic | **profiles, link mode, light/dark, adblock, zoom, custom CSS, UA, permissions, background mode** |
+| Identity | one window | **colored profile indicator** + SSO/CAPTCHA-aware link handling |
 | Discovery | app grid only | app grid **+ GNOME Shell search provider** (planned) |
 
 Rendering uses **CEF (Chromium Embedded Framework)** for maximum site
 compatibility (Widevine/DRM, Chrome-only sites), the same engine choice as
 upstream's v3.
+
+## Features
+
+Each web app is a real GNOME window with its own icon, profile and dock
+identity — and a set of per-app controls you won't find in a plain "install as
+app" button:
+
+- **One-click templates** — 50+ curated apps (Gmail, Teams, Spotify, WhatsApp,
+  Notion, Figma, the major AI tools…) added with the right icon in a click.
+- **Shared or isolated logins** — group apps onto a named profile to sign in
+  once, or keep each app private. A **colored profile indicator** in the manager
+  and window shows at a glance which identity an app uses (e.g. Work vs Private).
+- **Smart link handling** — a tri-state per app: keep everything in-window, or
+  send other sites to your browser by registrable domain or by exact host. A
+  built-in **identity/SSO/CAPTCHA allowlist** keeps multi-domain sign-in
+  (Microsoft, Google, Okta, Cloudflare) working in-window, and we never eject a
+  POST navigation (no broken `AADSTS900561`-style logins).
+- **Default handlers** — make a web app your system default for email, calendar
+  or calls, including deep links with no Linux app (Teams `msteams:`, Zoom). It
+  degrades gracefully on declaratively-managed (NixOS/home-manager) systems.
+- **Sticky GNOME notifications** — desktop notifications carry the app's name +
+  icon and stay in the notification list, and **background-app mode** keeps an
+  app running (hidden) so notifications keep arriving after you close the window.
+- **Built-in ad/tracker blocker** — an optional per-app network blocklist.
+- **Appearance & comfort** — force **light/dark** per app (independent of the
+  system theme), inject **custom CSS**, set a per-app user agent / mobile mode,
+  and **page zoom** (Ctrl+scroll / Ctrl+±/0) that — along with window size — is
+  **remembered between sessions**.
+- **Permission policy** — notifications/clipboard are granted; camera/mic and
+  location are denied unless you opt in per app.
+- **Crisp on HiDPI** — renders at the display's true (fractional) scale, so it
+  stays sharp on scaled and fractional-scaling (e.g. Niri) setups.
+- **Downloads** — saved to your Downloads folder.
+- **Automatic icons** — best manifest/apple-touch icon, an online icon search,
+  your own file, or a generated lettered fallback.
 
 ## Architecture
 
@@ -89,12 +125,14 @@ the **XDG DynamicLauncher portal** for sandbox-safe `.desktop` install, and
 
 ## Roadmap
 
-- **Phase 1 — Core + Manager (parity):** data model, storage, launcher install, GTK4 manager listing/CRUD.
-- **Phase 2 — Differentiators:** PWA manifest autofill, auto-icon download, scope confinement, per-app UA, adblock.
-- **Phase 3 — Native shell:** CEF off-screen rendering inside a libadwaita window with a real header bar, per-app zoom/CSS.
-- **Phase 4 — Polish:** GNOME Shell search provider, import from COSMIC / Linux Mint webapp-manager, prebuilt release bundles.
+- [x] **Phase 1 — Core + Manager (parity):** data model, storage, launcher install, GTK4 manager listing/CRUD.
+- [x] **Phase 2 — Differentiators:** PWA manifest autofill, auto-icon download, scope confinement, per-app UA, adblock, default handlers, profiles.
+- [x] **Phase 3 — Native shell:** CEF off-screen rendering inside a libadwaita window with a real header bar, per-app zoom/CSS, light/dark, HiDPI.
+- [x] **Phase 4 — Polish:** background mode, downloads, permission policy, profile indicator, prebuilt release bundles (Nix + Flatpak).
+- [ ] **Later:** GNOME Shell search provider, import from COSMIC / Linux Mint webapp-manager.
 
-See the [Epic and child issues](https://github.com/olafkfreund/gnome-quick-web-apps/issues) for live status.
+The initial roadmap is complete (releases up to **v0.1.4**). New work is tracked
+as standalone [issues](https://github.com/olafkfreund/gnome-quick-web-apps/issues).
 
 ## Installation
 
