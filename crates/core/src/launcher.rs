@@ -85,13 +85,20 @@ fn runner_path() -> String {
 /// When a deployed CEF runtime is found, prefix `LD_LIBRARY_PATH` so the
 /// runner can load `libcef.so` (mirrors the upstream launcher).
 fn exec_line(app: &WebApp) -> String {
-    let runner = runner_path();
     // `%u` lets the system pass a URL (e.g. a clicked mailto:) to the runner.
     let arg = if app.handlers.is_empty() {
         app.id.clone()
     } else {
         format!("{} %u", app.id)
     };
+    // Inside an AppImage the binaries live on an ephemeral mount that changes
+    // every run, so the .desktop must invoke the STABLE AppImage file ($APPIMAGE)
+    // with the app id. The AppImage's entrypoint dispatches an id argument to
+    // the runner (and a bare launch to the manager).
+    if let Some(appimage) = std::env::var_os("APPIMAGE") {
+        return format!("{} {}", std::path::Path::new(&appimage).display(), arg);
+    }
+    let runner = runner_path();
     match crate::cef_dir() {
         Some(cef) => format!("env LD_LIBRARY_PATH={} {} {}", cef.display(), runner, arg),
         None => format!("{} {}", runner, arg),

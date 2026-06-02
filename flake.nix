@@ -140,6 +140,24 @@
         packages.default = package;
         packages.gnome-quick-web-apps = package;
 
+        # AppImage entrypoint: a single binary that dispatches a launch. With an
+        # app-id argument (how installed .desktop launchers re-invoke the stable
+        # $APPIMAGE) it runs the CEF runner; a bare launch opens the manager.
+        # `nix bundle --bundler github:ralismark/nix-appimage .#appimage-entry`
+        # turns this (and its full closure: GTK, libadwaita, patched CEF) into a
+        # portable, distro-agnostic AppImage.
+        packages.appimage-entry = pkgs.writeShellApplication {
+          name = "gnome-quick-web-apps";
+          text = ''
+            # First non-flag, non-URL arg (no leading '-', no ':') is an app id
+            # → dispatch to the runner; otherwise launch the manager.
+            if [ "$#" -gt 0 ] && [ "''${1#-}" = "$1" ] && [ "''${1#*:}" = "$1" ]; then
+              exec ${package}/bin/gnome-quick-web-apps-runner "$@"
+            fi
+            exec ${package}/bin/gnome-quick-web-apps "$@"
+          '';
+        };
+
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [ pkg-config wrapGAppsHook4 ];
           buildInputs =

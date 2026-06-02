@@ -26,15 +26,39 @@ jobs:
           name: flatpak-bundle
           path: gnome-quick-web-apps-x86_64.flatpak
 
+  # Build a portable, distro-agnostic AppImage from the Nix package (bundles
+  # GTK, libadwaita and the patched CEF). For users who don't want Flatpak/Nix.
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Build AppImage
+        run: |
+          nix bundle --bundler github:ralismark/nix-appimage '.#appimage-entry' -o qwa-appimage
+          cp -L qwa-appimage gnome-quick-web-apps-x86_64.AppImage
+          chmod +x gnome-quick-web-apps-x86_64.AppImage
+          ls -lh gnome-quick-web-apps-x86_64.AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: gnome-quick-web-apps-x86_64.AppImage
+
   # Generate SBOMs + checksums and publish the GitHub Release.
   release:
-    needs: flatpak
+    needs: [flatpak, appimage]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: flatpak-bundle
+      - uses: actions/download-artifact@v4
+        with:
+          name: appimage
 
       # Software Bill of Materials of the source tree (catalogs Cargo.lock and
       # all dependencies) for supply-chain / security review.
@@ -55,6 +79,7 @@ jobs:
         run: |
           sha256sum \
             gnome-quick-web-apps-x86_64.flatpak \
+            gnome-quick-web-apps-x86_64.AppImage \
             gnome-quick-web-apps.spdx.json \
             gnome-quick-web-apps.cyclonedx.json \
             > SHA256SUMS.txt
@@ -66,6 +91,7 @@ jobs:
           generate_release_notes: true
           files: |
             gnome-quick-web-apps-x86_64.flatpak
+            gnome-quick-web-apps-x86_64.AppImage
             gnome-quick-web-apps.spdx.json
             gnome-quick-web-apps.cyclonedx.json
             SHA256SUMS.txt
@@ -76,6 +102,8 @@ jobs:
 
             ### Install
             - **NixOS / Nix:** `nix profile install github:olafkfreund/gnome-quick-web-apps`
+            - **AppImage (any distro):** download `gnome-quick-web-apps-x86_64.AppImage`,
+              `chmod +x` it, and run — no install needed.
             - **Flatpak:** download `gnome-quick-web-apps-x86_64.flatpak` below, then
               `flatpak install --user gnome-quick-web-apps-x86_64.flatpak`
 
