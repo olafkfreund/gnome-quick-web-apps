@@ -83,7 +83,8 @@
 
         package = pkgs.rustPlatform.buildRustPackage {
           pname = "gnome-quick-web-apps";
-          version = "0.1.0";
+          # Track the workspace version so the package never drifts on bumps.
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
 
