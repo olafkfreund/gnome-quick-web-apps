@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.8" date="2026-06-02">
+      <description>
+        <p>Web content is now crisp under fractional and HiDPI scaling (the render path is scale-aware, fixing blurry pages on compositors like Niri). Right-click inside a web app now shows a context menu (back/forward/reload and cut/copy/paste/select all), and the manager gains an About window so you can see which version you're running.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-06-02">
       <description>
         <p>Deeper desktop integration: media apps now expose MPRIS controls (lock screen, media keys, Quick Settings); mail/chat apps can show an unread count badge on the dock; and background apps get a tray icon (show/quit) plus an optional "Start on login".</p>
