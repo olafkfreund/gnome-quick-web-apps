@@ -204,10 +204,76 @@ wrap_app! {
     }
 }
 
+/// Enable Chromium's "Sites can play protected content" preference so EME/DRM
+/// playback (Netflix, Apple Music) works once a Widevine CDM is present. The
+/// CDM loads separately (see `widevine::provision`), but DRM stays gated behind
+/// this preference, which CEF leaves off by default — Netflix surfaces that as
+/// error M7701-1003 ("make sure 'Sites can play protected content' is selected").
+///
+/// Different CEF builds register this under different preference names, so we
+/// set every candidate the running context reports as settable and log the
+/// outcome of each. Guarded by `can_set_preference`, so unknown names are
+/// harmless no-ops; the logs reveal which lever actually applied.
+fn enable_protected_content() {
+    let Some(ctx) = request_context_get_global_context() else {
+        tracing::warn!("no global request context; cannot enable protected content");
+        return;
+    };
+
+    // Most are booleans; the content-setting default is an int (1 = allow).
+    let candidates: [(&str, bool); 4] = [
+        ("settings.privacy.drm_enabled", true),
+        ("protected_content.enabled", true),
+        ("webkit.webprefs.encrypted_media_enabled", true),
+        (
+            "profile.default_content_setting_values.protected_media_identifier",
+            false,
+        ),
+    ];
+
+    let mut applied = false;
+    for (name, is_bool) in candidates {
+        let cname = CefString::from(name);
+        if ctx.can_set_preference(Some(&cname)) != 1 {
+            tracing::debug!("protected-content pref not settable here: {name}");
+            continue;
+        }
+        let Some(mut val) = value_create() else {
+            continue;
+        };
+        if is_bool {
+            val.set_bool(1);
+        } else {
+            val.set_int(1);
+        }
+        let mut err = CefString::default();
+        if ctx.set_preference(Some(&cname), Some(&mut val), Some(&mut err)) == 1 {
+            applied = true;
+            tracing::info!("enabled protected-content preference: {name}");
+        } else {
+            tracing::warn!("failed to set protected-content pref {name}: {err}");
+        }
+    }
+
+    if !applied {
+        tracing::info!(
+            "no protected-content preference was settable; DRM playback may stay \
+             blocked (Netflix M7701-1003). The Widevine CDM itself loads separately."
+        );
+    }
+}
+
 wrap_browser_process_handler! {
     struct OsrBrowserProcessHandler {}
 
     impl BrowserProcessHandler {
+        // Once CEF is initialized (prefs are now available on the UI thread),
+        // turn on "Sites can play protected content" so DRM playback works with
+        // the reused Widevine CDM (Netflix M7701-1003).
+        fn on_context_initialized(&self) {
+            enable_protected_content();
+        }
+
         // A second launch of an app sharing this profile cannot start its own
         // CEF process (CEF is a singleton per root_cache_path), so CEF forwards
         // that process's command line here, to the already-running primary, and

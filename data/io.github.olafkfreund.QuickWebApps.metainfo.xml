@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.11" date="2026-06-02">
+      <description>
+        <p>DRM playback fix follow-up: now that a reused Widevine module is detected, the app also enables Chromium's "Sites can play protected content" preference, which was leaving DRM blocked (Netflix error M7701-1003) even with the module present.</p>
+      </description>
+    </release>
     <release version="0.1.10" date="2026-06-02">
       <description>
         <p>DRM streaming (Apple Music, Netflix, Spotify Web) can now work: if you have a Chromium-family browser installed (Chrome, Chromium, Edge, Brave, Vivaldi), Quick Web Apps reuses its Widevine module automatically, since the embedded engine ships none. Without such a browser, DRM playback remains unavailable.</p>
