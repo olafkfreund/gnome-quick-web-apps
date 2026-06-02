@@ -43,3 +43,9 @@ pub fn filters_dir() -> PathBuf {
 pub fn app_config(id: &str) -> PathBuf {
     apps_dir().join(format!("{id}.json"))
 }
+
+/// `.../window/<id>.state` — last-session window geometry + zoom for an app,
+/// restored on the next launch.
+pub fn window_state(id: &str) -> PathBuf {
+    ensure(data_root().join("window")).join(format!("{id}.state"))
+}

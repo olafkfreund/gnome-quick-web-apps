@@ -56,6 +56,25 @@ fn set_zoom(shared: &Shared, level: f64) {
     with_host(shared, |h| h.set_zoom_level(level));
 }
 
+/// Restore last-session window geometry + zoom: `maximized\nWxH\nzoom`.
+fn load_window_state(id: &str) -> Option<(bool, i32, i32, f64)> {
+    let text = std::fs::read_to_string(qwa_core::paths::window_state(id)).ok()?;
+    let mut lines = text.lines();
+    let maximized = lines.next()? == "true";
+    let (ws, hs) = lines.next()?.split_once('x')?;
+    let (w, h) = (ws.parse().ok()?, hs.parse().ok()?);
+    let zoom = lines.next().and_then(|z| z.parse().ok()).unwrap_or(0.0);
+    Some((maximized, w, h, zoom))
+}
+
+/// Persist window geometry + zoom for next launch.
+fn save_window_state(id: &str, maximized: bool, w: i32, h: i32, zoom: f64) {
+    let body = format!("{maximized}\n{w}x{h}\n{zoom}\n");
+    if let Err(e) = std::fs::write(qwa_core::paths::window_state(id), body) {
+        tracing::warn!("failed to save window state for {id}: {e}");
+    }
+}
+
 /// Map a GDK key to a Windows virtual-key code (what CEF expects). Printable
 /// keys fall back to their uppercase ASCII; named keys map explicitly.
 fn vk_from_keyval(k: gtk::gdk::Key) -> i32 {
@@ -315,6 +334,12 @@ wrap_load_handler! {
                         *self.shared.home.borrow_mut() = Some(url);
                     }
                 }
+                // Re-apply the restored zoom once the host is ready (CEF starts
+                // each browser at 100%).
+                let z = self.shared.zoom.get();
+                if z != 0.0 {
+                    with_host(&self.shared, |h| h.set_zoom_level(z));
+                }
             }
         }
     }
@@ -503,8 +528,15 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         })
         .unwrap_or_else(|| webapp.url.clone());
     let title = webapp.name.clone();
-    let win_w = webapp.window.0 as i32;
-    let win_h = webapp.window.1 as i32;
+    let app_id = webapp.id.clone();
+    // Restore last-session geometry + zoom; fall back to the configured size.
+    let (init_w, init_h, init_max) = match load_window_state(&webapp.id) {
+        Some((m, w, h, z)) => {
+            shared.zoom.set(z);
+            (w, h, m)
+        }
+        None => (webapp.window.0 as i32, webapp.window.1 as i32, false),
+    };
 
     application.connect_activate(move |app| {
         let header = adw::HeaderBar::new();
@@ -585,10 +617,23 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title(&title)
-            .default_width(win_w)
-            .default_height(win_h)
+            .default_width(init_w)
+            .default_height(init_h)
             .content(&toolbar)
             .build();
+        if init_max {
+            window.maximize();
+        }
+        // Persist geometry + zoom on close so the next launch restores them.
+        {
+            let shared = shared.clone();
+            let app_id = app_id.clone();
+            window.connect_close_request(move |win| {
+                let (w, h) = win.default_size();
+                save_window_state(&app_id, win.is_maximized(), w, h, shared.zoom.get());
+                gtk::glib::Propagation::Proceed
+            });
+        }
         window.present();
 
         // Create the off-screen browser bound to this drawing area.

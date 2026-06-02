@@ -111,17 +111,56 @@ pub async fn install(app: &WebApp, icon_png: Vec<u8>) -> Result<()> {
 /// Register this app as the system default for each of its registered scheme
 /// handlers. Best-effort via `xdg-mime`; runs after the launcher is installed.
 pub fn set_as_default_handlers(app: &WebApp) {
+    if app.handlers.is_empty() {
+        return;
+    }
+    // On systems that manage `mimeapps.list` declaratively (e.g. NixOS with
+    // home-manager) it is a read-only symlink into /nix/store, so `xdg-mime`
+    // can't write it — and worse, exits 0 while printing a raw error. Detect
+    // that up front and skip with a single actionable message.
+    if let Some(path) = mimeapps_list_path() {
+        if is_readonly_managed(&path) {
+            let mimes: Vec<&str> = app.handlers.iter().map(|h| h.mime.as_str()).collect();
+            tracing::warn!(
+                "not setting default handlers: {} is read-only / declaratively managed. \
+                 Set these in your system config instead ({}).",
+                path.display(),
+                mimes.join(", ")
+            );
+            return;
+        }
+    }
     let file = launcher_filename(app);
     for handler in &app.handlers {
         match std::process::Command::new("xdg-mime")
             .args(["default", &file, &handler.mime])
-            .status()
+            .output()
         {
-            Ok(s) if s.success() => tracing::info!("{} -> default for {}", app.id, handler.mime),
-            Ok(s) => tracing::warn!("xdg-mime exited with {s}"),
+            Ok(o) if o.status.success() && o.stderr.is_empty() => {
+                tracing::info!("{} -> default for {}", app.id, handler.mime)
+            }
+            // xdg-mime can exit 0 yet fail to write; treat any stderr as failure.
+            Ok(o) => tracing::warn!(
+                "could not set default handler for {}: {}",
+                handler.mime,
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
             Err(e) => tracing::warn!("xdg-mime failed: {e}"),
         }
     }
+}
+
+/// Where `xdg-mime` writes the user's default-application associations.
+fn mimeapps_list_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|c| c.join("mimeapps.list"))
+}
+
+/// True when `path` is a read-only, declaratively-managed file — i.e. a symlink
+/// resolving into the immutable Nix store (home-manager/NixOS).
+fn is_readonly_managed(path: &std::path::Path) -> bool {
+    std::fs::canonicalize(path)
+        .map(|real| real.starts_with("/nix/store"))
+        .unwrap_or(false)
 }
 
 /// Remove the launcher for `app`.
