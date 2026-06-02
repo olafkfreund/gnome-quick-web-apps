@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.4" date="2026-06-02">
+      <description>
+        <p>A big round of per-app controls and fixes: built-in ad/tracker blocker, force light/dark appearance, custom CSS, background-app mode (keep running for notifications), downloads to your Downloads folder, and a colored login-profile indicator in the manager and window. Permission policy for camera/mic and location, crisper rendering under fractional/HiDPI scaling, more reliable launcher paths, and groundwork for safe config migrations.</p>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-06-02">
       <description>
         <p>Media apps now have audio in the Flatpak sandbox. New tri-state link handling (keep everything in-window, or send other sites to the browser by registrable domain or exact host), with an allowlist that keeps sign-in/SSO and CAPTCHA pages in-window. Windows remember their size and zoom between sessions. Cleaner handling of declaratively-managed default-app settings.</p>
