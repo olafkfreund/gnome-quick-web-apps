@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use cef::{Rect, *};
+use gtk::gio;
 use qwa_core::WebApp;
 
 /// The most recent painted frame (BGRA, premultiplied — matches Cairo ARGB32).
@@ -39,6 +40,10 @@ struct Shared {
     home: RefCell<Option<String>>,
     /// Current CEF zoom level (0 = 100%; each step ≈ ±20%).
     zoom: std::cell::Cell<f64>,
+    /// Weak handle to this window, so the MPRIS player's Raise/Quit methods can
+    /// present or close it. Weak to avoid a reference cycle (the window owns the
+    /// handlers that own `Shared`).
+    window: RefCell<Option<gtk::glib::WeakRef<adw::ApplicationWindow>>>,
 }
 
 /// Run `f` with the live browser host, if a browser exists.
@@ -415,6 +420,8 @@ wrap_life_span_handler! {
 
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
             *self.shared.browser.borrow_mut() = None;
+            // Drop this window's MPRIS player (unregister objects + bus name).
+            mpris_remove(&self.app.id);
         }
     }
 }
@@ -457,27 +464,58 @@ wrap_load_handler! {
                 }
             }
 
-            // Inject the app's per-app custom CSS after each page finishes
-            // loading, by appending a <style> element to the document head.
+            // Inject the app's per-app custom CSS and the MPRIS media bridge
+            // after each page finishes loading.
             if is_loading == 0 {
-                if let Some(css) = self.app.custom_css.clone() {
-                    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+                if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+                    // Per-app custom CSS: append a <style> element to the head.
+                    if let Some(css) = self.app.custom_css.clone() {
                         let js = format!(
                             "(function(){{var s=document.createElement('style');\
                              s.textContent={};document.head.appendChild(s);}})();",
                             js_string_literal(&css),
                         );
-                        frame.execute_java_script(
-                            Some(&CefString::from(js.as_str())),
-                            None,
-                            0,
-                        );
+                        frame.execute_java_script(Some(&CefString::from(js.as_str())), None, 0);
                     }
+
+                    // MPRIS media bridge: report media-session state over the
+                    // console channel (consumed by OsrDisplayHandler). Injected
+                    // for every app — MPRIS is automatic — and self-guarded so a
+                    // re-load doesn't install duplicate timers/listeners.
+                    frame.execute_java_script(Some(&CefString::from(MEDIA_BRIDGE_JS)), None, 0);
                 }
             }
         }
     }
 }
+
+/// Page-side media reporter. Reads `navigator.mediaSession` metadata + playback
+/// state (falling back to any non-paused `<audio>/<video>`), and emits
+/// `console.log('QWA_MEDIA:'+json)` only when the payload changes — on a ~1s
+/// interval and on media `play`/`pause` events. Guarded by `window.__qwaMediaBridge`
+/// so repeated injection (one per page load) installs it only once.
+const MEDIA_BRIDGE_JS: &str = r#"(function(){
+if(window.__qwaMediaBridge)return;window.__qwaMediaBridge=true;
+var last=null;
+function state(){
+var ms=navigator.mediaSession,m=(ms&&ms.metadata)||null;
+var playing=false;
+var els=document.querySelectorAll('audio,video');
+for(var i=0;i<els.length;i++){if(!els[i].paused&&!els[i].ended&&els[i].currentTime>0){playing=true;break;}}
+if(!playing&&ms&&ms.playbackState==='playing')playing=true;
+var art='';
+if(m&&m.artwork&&m.artwork.length){art=m.artwork[m.artwork.length-1].src||'';}
+return{playing:playing,title:(m&&m.title)||'',artist:(m&&m.artist)||'',album:(m&&m.album)||'',art:art};
+}
+function report(){
+var s=state();var j=JSON.stringify(s);
+if(j!==last){last=j;console.log('QWA_MEDIA:'+j);}
+}
+setInterval(report,1000);
+document.addEventListener('play',report,true);
+document.addEventListener('pause',report,true);
+report();
+})();"#;
 
 wrap_request_handler! {
     struct OsrRequestHandler {
@@ -776,8 +814,9 @@ wrap_client! {
         }
 
         fn display_handler(&self) -> Option<DisplayHandler> {
-            // Per-window app context drives this window's dock badge.
-            Some(OsrDisplayHandler::new(self.app.clone()))
+            // Per-window app context drives this window's dock badge; the shared
+            // browser state lets the MPRIS controls reach this window's host.
+            Some(OsrDisplayHandler::new(self.app.clone(), self.shared.clone()))
         }
     }
 }
@@ -791,11 +830,21 @@ thread_local! {
     /// per-app dock-badge updates (Unity LauncherEntry). `None` when the bus is
     /// unavailable — badge updates are then silently skipped.
     static DBUS: RefCell<Option<gtk::gio::DBusConnection>> = const { RefCell::new(None) };
+
+    /// Per-window MPRIS players, keyed by the window's app id. Created lazily on
+    /// the first `QWA_MEDIA:` console message a window reports, removed when the
+    /// window closes. The registered D-Bus method-call/get-property closures
+    /// capture only this `String` key (which is `Send`) and look the player up
+    /// here on the GTK main thread — the thread all gio D-Bus callbacks land on,
+    /// the same thread CEF is pumped from — so they never need to capture the
+    /// non-`Send` `Rc<Shared>`/`Browser` directly.
+    static PLAYERS: RefCell<HashMap<String, MprisPlayer>> = RefCell::new(HashMap::new());
 }
 
 wrap_display_handler! {
     struct OsrDisplayHandler {
         app: Rc<WebApp>,
+        shared: Rc<Shared>,
     }
 
     impl DisplayHandler {
@@ -812,7 +861,118 @@ wrap_display_handler! {
                 .unwrap_or(0);
             emit_badge(&self.app.id, count);
         }
+
+        // The JS-to-Rust channel for media state. The injected media bridge
+        // (see OsrLoadHandler) logs `QWA_MEDIA:{json}` whenever the page's media
+        // session metadata or playing flag changes; we parse that here and push
+        // it into this window's MPRIS player (created lazily on first message),
+        // emitting a Properties.PropertiesChanged so GNOME's lock screen / media
+        // keys / Quick Settings reflect it. Returns 0 to NOT suppress the message
+        // (so it still reaches the devtools console).
+        fn on_console_message(
+            &self,
+            _browser: Option<&mut Browser>,
+            _level: LogSeverity,
+            message: Option<&CefString>,
+            _source: Option<&CefString>,
+            _line: i32,
+        ) -> i32 {
+            if let Some(msg) = message.map(|m| m.to_string()) {
+                if let Some(payload) = msg.strip_prefix("QWA_MEDIA:") {
+                    if let Some(state) = parse_media_payload(payload) {
+                        mpris_update(&self.app, &self.shared, state);
+                    }
+                }
+            }
+            0
+        }
     }
+}
+
+/// The parsed media state a `QWA_MEDIA:` console message carries.
+#[derive(Default, Clone, PartialEq)]
+struct MediaState {
+    playing: bool,
+    title: String,
+    artist: String,
+    album: String,
+    art: String,
+}
+
+/// Hand-parse the tiny JSON object the media bridge emits. The bridge controls
+/// the exact shape — a flat object of one bool (`playing`) and four strings
+/// (`title`, `artist`, `album`, `art`) — so a minimal field extractor suffices
+/// and avoids a serde_json dependency. Malformed payloads yield `None`.
+fn parse_media_payload(json: &str) -> Option<MediaState> {
+    // Must look like an object; reject obvious garbage.
+    let trimmed = json.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    Some(MediaState {
+        playing: json_bool(trimmed, "playing"),
+        title: json_string(trimmed, "title"),
+        artist: json_string(trimmed, "artist"),
+        album: json_string(trimmed, "album"),
+        art: json_string(trimmed, "art"),
+    })
+}
+
+/// Extract `"key":true|false` from a flat JSON object.
+fn json_bool(json: &str, key: &str) -> bool {
+    let needle = format!("\"{key}\"");
+    if let Some(pos) = json.find(&needle) {
+        let rest = &json[pos + needle.len()..];
+        // skip whitespace + ':'
+        let rest = rest.trim_start();
+        let rest = rest.strip_prefix(':').unwrap_or(rest).trim_start();
+        return rest.starts_with("true");
+    }
+    false
+}
+
+/// Extract `"key":"value"` from a flat JSON object, decoding the handful of
+/// escapes the JS `JSON.stringify` may emit (\\ \" \n \r \t and \uXXXX).
+fn json_string(json: &str, key: &str) -> String {
+    let needle = format!("\"{key}\"");
+    let Some(pos) = json.find(&needle) else {
+        return String::new();
+    };
+    let rest = &json[pos + needle.len()..];
+    let rest = rest.trim_start();
+    let rest = rest.strip_prefix(':').unwrap_or(rest).trim_start();
+    let Some(rest) = rest.strip_prefix('"') else {
+        return String::new();
+    };
+    // Walk to the closing unescaped quote, decoding escapes as we go.
+    let mut out = String::new();
+    let mut chars = rest.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => break,
+            '\\' => match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('t') => out.push('\t'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some('/') => out.push('/'),
+                Some('u') => {
+                    // Read 4 hex digits into a code unit; emit the char if valid.
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if let Ok(cp) = u32::from_str_radix(&hex, 16) {
+                        if let Some(ch) = char::from_u32(cp) {
+                            out.push(ch);
+                        }
+                    }
+                }
+                Some(other) => out.push(other),
+                None => break,
+            },
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Emit a Unity LauncherEntry `Update` signal so docks/panels that honour the
@@ -839,6 +999,415 @@ fn emit_badge(app_id: &str, count: u32) {
             }
         }
     });
+}
+
+// ---------------------------------------------------------------------------
+// MPRIS media controls (per window)
+//
+// Each window that reports media state owns a standard MPRIS player on the
+// session bus (`org.mpris.MediaPlayer2.qwa_<app-id>`) implementing the two
+// org.mpris.MediaPlayer2{,.Player} interfaces. GNOME's lock screen, media keys
+// and Quick Settings see/control it.
+//
+// Metadata IN: the page-side bridge (MEDIA_BRIDGE_JS) logs `QWA_MEDIA:{json}`,
+//   OsrDisplayHandler::on_console_message parses it and calls `mpris_update`,
+//   which stores the new state in PLAYERS and emits Properties.PropertiesChanged.
+// Control OUT: MPRIS Play/Pause/Next/... method calls land on the GTK main
+//   thread, look this window's player up in PLAYERS by app id, and synthesize
+//   the matching media key on the browser host (`with_host(... send_key_event)`),
+//   which Chromium routes to the page's media session — site-agnostic.
+//
+// `Send`: the gio register_object/own_name closures only require `Fn + 'static`
+//   (gio wraps them with `Closure::new_local`), but to also satisfy the C-side
+//   `Send + Sync` contract and keep the non-`Send` `Rc<Shared>` out of them,
+//   they capture only the `String` app id and resolve everything via PLAYERS on
+//   the GTK thread.
+// ---------------------------------------------------------------------------
+
+/// One window's MPRIS presence: its current state plus the registration ids
+/// needed to tear it down on close, plus the window's `Rc<Shared>` so the
+/// control methods can reach the browser host (and the window for Raise/Quit).
+struct MprisPlayer {
+    state: MediaState,
+    /// App display name, surfaced as the MPRIS `Identity` / used in `DesktopEntry`.
+    name: String,
+    /// `<APP_ID>.<id>` — the installed desktop file id (no `.desktop` suffix).
+    desktop_entry: String,
+    shared: Rc<Shared>,
+    owner_id: gio::OwnerId,
+    root_reg: gio::RegistrationId,
+    player_reg: gio::RegistrationId,
+}
+
+/// The fixed MPRIS object path every player registers its interfaces at.
+const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
+
+/// Introspection XML describing the two MPRIS interfaces we implement. Only the
+/// members we actually back are declared; the rest (TrackList, Playlists) are
+/// intentionally absent.
+const MPRIS_XML: &str = r#"<node>
+  <interface name="org.mpris.MediaPlayer2">
+    <method name="Raise"/>
+    <method name="Quit"/>
+    <property name="CanQuit" type="b" access="read"/>
+    <property name="CanRaise" type="b" access="read"/>
+    <property name="HasTrackList" type="b" access="read"/>
+    <property name="Identity" type="s" access="read"/>
+    <property name="DesktopEntry" type="s" access="read"/>
+    <property name="SupportedUriSchemes" type="as" access="read"/>
+    <property name="SupportedMimeTypes" type="as" access="read"/>
+  </interface>
+  <interface name="org.mpris.MediaPlayer2.Player">
+    <method name="Next"/>
+    <method name="Previous"/>
+    <method name="Pause"/>
+    <method name="PlayPause"/>
+    <method name="Stop"/>
+    <method name="Play"/>
+    <method name="Seek"><arg direction="in" name="Offset" type="x"/></method>
+    <method name="SetPosition">
+      <arg direction="in" name="TrackId" type="o"/>
+      <arg direction="in" name="Position" type="x"/>
+    </method>
+    <method name="OpenUri"><arg direction="in" name="Uri" type="s"/></method>
+    <property name="PlaybackStatus" type="s" access="read"/>
+    <property name="Rate" type="d" access="readwrite"/>
+    <property name="Metadata" type="a{sv}" access="read"/>
+    <property name="Volume" type="d" access="readwrite"/>
+    <property name="Position" type="x" access="read"/>
+    <property name="MinimumRate" type="d" access="read"/>
+    <property name="MaximumRate" type="d" access="read"/>
+    <property name="CanGoNext" type="b" access="read"/>
+    <property name="CanGoPrevious" type="b" access="read"/>
+    <property name="CanPlay" type="b" access="read"/>
+    <property name="CanPause" type="b" access="read"/>
+    <property name="CanSeek" type="b" access="read"/>
+    <property name="CanControl" type="b" access="read"/>
+  </interface>
+</node>"#;
+
+/// `PlaybackStatus` string for the current playing flag.
+fn playback_status(playing: bool) -> &'static str {
+    if playing {
+        "Playing"
+    } else {
+        "Paused"
+    }
+}
+
+/// Build the MPRIS `Metadata` `a{sv}` variant from the current state. Empty
+/// fields are omitted (a track id is always present so players have a key).
+fn build_metadata(state: &MediaState) -> gtk::glib::Variant {
+    use gtk::glib::prelude::ToVariant;
+    let mut m: HashMap<String, gtk::glib::Variant> = HashMap::new();
+    // mpris:trackid must be an object path; use a fixed synthetic one.
+    if let Ok(path) = gtk::glib::variant::ObjectPath::try_from("/org/qwa/track") {
+        m.insert("mpris:trackid".to_string(), path.to_variant());
+    }
+    if !state.title.is_empty() {
+        m.insert("xesam:title".to_string(), state.title.to_variant());
+    }
+    if !state.artist.is_empty() {
+        // xesam:artist is a string array (`as`).
+        m.insert(
+            "xesam:artist".to_string(),
+            vec![state.artist.clone()].to_variant(),
+        );
+    }
+    if !state.album.is_empty() {
+        m.insert("xesam:album".to_string(), state.album.to_variant());
+    }
+    if !state.art.is_empty() {
+        m.insert("mpris:artUrl".to_string(), state.art.to_variant());
+    }
+    m.to_variant()
+}
+
+/// Look up an MPRIS property value for the player keyed by `app_id`. Returns the
+/// variant the introspected type expects. Unknown properties fall back to an
+/// empty string (gio surfaces a not-found error to the caller anyway).
+fn mpris_get_property(app_id: &str, interface: &str, prop: &str) -> gtk::glib::Variant {
+    use gtk::glib::prelude::ToVariant;
+    let empty_strs: Vec<String> = Vec::new();
+    PLAYERS.with(|players| {
+        let players = players.borrow();
+        let player = players.get(app_id);
+        match (interface, prop) {
+            ("org.mpris.MediaPlayer2", "Identity") => player
+                .map(|p| p.name.clone())
+                .unwrap_or_default()
+                .to_variant(),
+            ("org.mpris.MediaPlayer2", "DesktopEntry") => player
+                .map(|p| p.desktop_entry.clone())
+                .unwrap_or_default()
+                .to_variant(),
+            ("org.mpris.MediaPlayer2", "CanQuit") => true.to_variant(),
+            ("org.mpris.MediaPlayer2", "CanRaise") => true.to_variant(),
+            ("org.mpris.MediaPlayer2", "HasTrackList") => false.to_variant(),
+            ("org.mpris.MediaPlayer2", "SupportedUriSchemes") => empty_strs.to_variant(),
+            ("org.mpris.MediaPlayer2", "SupportedMimeTypes") => empty_strs.to_variant(),
+            ("org.mpris.MediaPlayer2.Player", "PlaybackStatus") => {
+                playback_status(player.map(|p| p.state.playing).unwrap_or(false)).to_variant()
+            }
+            ("org.mpris.MediaPlayer2.Player", "Metadata") => match player {
+                Some(p) => build_metadata(&p.state),
+                None => build_metadata(&MediaState::default()),
+            },
+            ("org.mpris.MediaPlayer2.Player", "CanGoNext")
+            | ("org.mpris.MediaPlayer2.Player", "CanGoPrevious")
+            | ("org.mpris.MediaPlayer2.Player", "CanPlay")
+            | ("org.mpris.MediaPlayer2.Player", "CanPause")
+            | ("org.mpris.MediaPlayer2.Player", "CanControl") => true.to_variant(),
+            ("org.mpris.MediaPlayer2.Player", "CanSeek") => false.to_variant(),
+            ("org.mpris.MediaPlayer2.Player", "Rate")
+            | ("org.mpris.MediaPlayer2.Player", "MinimumRate")
+            | ("org.mpris.MediaPlayer2.Player", "MaximumRate")
+            | ("org.mpris.MediaPlayer2.Player", "Volume") => 1.0f64.to_variant(),
+            ("org.mpris.MediaPlayer2.Player", "Position") => 0i64.to_variant(),
+            _ => String::new().to_variant(),
+        }
+    })
+}
+
+/// Synthesize a media key on the player's browser host. Chromium routes media
+/// keys to the page's registered media-session action handlers, so this works
+/// without any per-site JS. `vk` is a Windows VK media key code.
+fn mpris_send_media_key(app_id: &str, vk: i32) {
+    PLAYERS.with(|players| {
+        if let Some(player) = players.borrow().get(app_id) {
+            with_host(&player.shared, |h| {
+                h.send_key_event(Some(&KeyEvent {
+                    type_: KeyEventType::RAWKEYDOWN,
+                    windows_key_code: vk,
+                    ..Default::default()
+                }));
+                h.send_key_event(Some(&KeyEvent {
+                    type_: KeyEventType::KEYUP,
+                    windows_key_code: vk,
+                    ..Default::default()
+                }));
+            });
+        }
+    });
+}
+
+/// Handle an MPRIS method call for the player keyed by `app_id`.
+fn mpris_method_call(app_id: &str, interface: &str, method: &str) {
+    // Windows VK media keys (what CEF's send_key_event expects).
+    const VK_MEDIA_NEXT_TRACK: i32 = 0xB0;
+    const VK_MEDIA_PREV_TRACK: i32 = 0xB1;
+    const VK_MEDIA_STOP: i32 = 0xB2;
+    const VK_MEDIA_PLAY_PAUSE: i32 = 0xB3;
+
+    match (interface, method) {
+        ("org.mpris.MediaPlayer2", "Raise") => PLAYERS.with(|players| {
+            if let Some(player) = players.borrow().get(app_id) {
+                if let Some(win) = player
+                    .shared
+                    .window
+                    .borrow()
+                    .as_ref()
+                    .and_then(|w| w.upgrade())
+                {
+                    win.set_visible(true);
+                    win.present();
+                }
+            }
+        }),
+        ("org.mpris.MediaPlayer2", "Quit") => PLAYERS.with(|players| {
+            if let Some(player) = players.borrow().get(app_id) {
+                if let Some(win) = player
+                    .shared
+                    .window
+                    .borrow()
+                    .as_ref()
+                    .and_then(|w| w.upgrade())
+                {
+                    win.close();
+                }
+            }
+        }),
+        ("org.mpris.MediaPlayer2.Player", "Play")
+        | ("org.mpris.MediaPlayer2.Player", "Pause")
+        | ("org.mpris.MediaPlayer2.Player", "PlayPause") => {
+            mpris_send_media_key(app_id, VK_MEDIA_PLAY_PAUSE)
+        }
+        ("org.mpris.MediaPlayer2.Player", "Next") => {
+            mpris_send_media_key(app_id, VK_MEDIA_NEXT_TRACK)
+        }
+        ("org.mpris.MediaPlayer2.Player", "Previous") => {
+            mpris_send_media_key(app_id, VK_MEDIA_PREV_TRACK)
+        }
+        ("org.mpris.MediaPlayer2.Player", "Stop") => mpris_send_media_key(app_id, VK_MEDIA_STOP),
+        // Seek/SetPosition/OpenUri are declared but no-ops (CanSeek=false).
+        _ => {}
+    }
+}
+
+/// Emit Properties.PropertiesChanged for the Player interface so subscribers
+/// (lock screen, Quick Settings) pick up the new PlaybackStatus + Metadata.
+fn mpris_emit_properties_changed(conn: &gio::DBusConnection, state: &MediaState) {
+    use gtk::glib::prelude::ToVariant;
+    let mut changed: HashMap<String, gtk::glib::Variant> = HashMap::new();
+    changed.insert(
+        "PlaybackStatus".to_string(),
+        playback_status(state.playing).to_variant(),
+    );
+    changed.insert("Metadata".to_string(), build_metadata(state));
+    let invalidated: Vec<String> = Vec::new();
+    let params = (
+        "org.mpris.MediaPlayer2.Player".to_string(),
+        changed,
+        invalidated,
+    )
+        .to_variant();
+    if let Err(e) = conn.emit_signal(
+        None,
+        MPRIS_PATH,
+        "org.freedesktop.DBus.Properties",
+        "PropertiesChanged",
+        Some(&params),
+    ) {
+        tracing::debug!("failed to emit MPRIS PropertiesChanged: {e}");
+    }
+}
+
+/// Update (or lazily create) this window's MPRIS player with new media state,
+/// then signal the change to the bus. Best-effort: a missing session bus or a
+/// registration failure logs and leaves the app running normally.
+fn mpris_update(app: &WebApp, shared: &Rc<Shared>, state: MediaState) {
+    DBUS.with(|c| {
+        let Some(conn) = c.borrow().clone() else {
+            return; // no session bus -> no MPRIS, app still runs
+        };
+
+        let app_id = app.id.clone();
+        let exists = PLAYERS.with(|p| p.borrow().contains_key(&app_id));
+
+        if !exists {
+            // First media message for this window: register the player.
+            let node = match gio::DBusNodeInfo::for_xml(MPRIS_XML) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!("invalid MPRIS introspection xml: {e}");
+                    return;
+                }
+            };
+            let Some(root_iface) = node.lookup_interface("org.mpris.MediaPlayer2") else {
+                return;
+            };
+            let Some(player_iface) = node.lookup_interface("org.mpris.MediaPlayer2.Player") else {
+                return;
+            };
+
+            // org.mpris.MediaPlayer2 (root): Raise/Quit + identity properties.
+            let root_reg = {
+                let id_for_call = app_id.clone();
+                let id_for_get = app_id.clone();
+                match conn
+                    .register_object(MPRIS_PATH, &root_iface)
+                    .method_call(move |_conn, _sender, _path, iface, method, _params, inv| {
+                        mpris_method_call(&id_for_call, iface.unwrap_or_default(), method);
+                        inv.return_value(None);
+                    })
+                    .property(move |_conn, _sender, _path, iface, prop| {
+                        mpris_get_property(&id_for_get, iface, prop)
+                    })
+                    .build()
+                {
+                    Ok(id) => id,
+                    Err(e) => {
+                        tracing::warn!("failed to register MPRIS root object: {e}");
+                        return;
+                    }
+                }
+            };
+
+            // org.mpris.MediaPlayer2.Player: transport methods + state properties.
+            let player_reg = {
+                let id_for_call = app_id.clone();
+                let id_for_get = app_id.clone();
+                match conn
+                    .register_object(MPRIS_PATH, &player_iface)
+                    .method_call(move |_conn, _sender, _path, iface, method, _params, inv| {
+                        mpris_method_call(&id_for_call, iface.unwrap_or_default(), method);
+                        inv.return_value(None);
+                    })
+                    .property(move |_conn, _sender, _path, iface, prop| {
+                        mpris_get_property(&id_for_get, iface, prop)
+                    })
+                    .build()
+                {
+                    Ok(id) => id,
+                    Err(e) => {
+                        tracing::warn!("failed to register MPRIS player object: {e}");
+                        let _ = conn.unregister_object(root_reg);
+                        return;
+                    }
+                }
+            };
+
+            // Own the well-known bus name for this player.
+            let bus_name = format!("org.mpris.MediaPlayer2.qwa_{}", sanitize_app_id(&app_id));
+            let owner_id = gio::bus_own_name_on_connection(
+                &conn,
+                &bus_name,
+                gio::BusNameOwnerFlags::NONE,
+                |_c, _n| {},
+                |_c, _n| {},
+            );
+
+            PLAYERS.with(|players| {
+                players.borrow_mut().insert(
+                    app_id.clone(),
+                    MprisPlayer {
+                        state: MediaState::default(),
+                        name: app.name.clone(),
+                        desktop_entry: format!("{}.{}", qwa_core::APP_ID, app_id),
+                        shared: shared.clone(),
+                        owner_id,
+                        root_reg,
+                        player_reg,
+                    },
+                );
+            });
+            tracing::info!("registered MPRIS player {bus_name}");
+        }
+
+        // Store the new state; skip the signal when nothing actually changed.
+        let changed = PLAYERS.with(|players| {
+            let mut players = players.borrow_mut();
+            if let Some(player) = players.get_mut(&app_id) {
+                if player.state == state {
+                    return false;
+                }
+                player.state = state.clone();
+                true
+            } else {
+                false
+            }
+        });
+
+        if changed {
+            mpris_emit_properties_changed(&conn, &state);
+        }
+    });
+}
+
+/// Tear down a window's MPRIS player when the window closes: drop its registry
+/// entry, unregister both objects, and release the bus name.
+fn mpris_remove(app_id: &str) {
+    let player = PLAYERS.with(|players| players.borrow_mut().remove(app_id));
+    if let Some(player) = player {
+        DBUS.with(|c| {
+            if let Some(conn) = c.borrow().as_ref() {
+                let _ = conn.unregister_object(player.root_reg);
+                let _ = conn.unregister_object(player.player_reg);
+            }
+        });
+        gio::bus_unown_name(player.owner_id);
+        tracing::info!("removed MPRIS player for {app_id}");
+    }
 }
 
 /// Build and present one app window (header + nav + profile cue + drawing area)
@@ -1027,6 +1596,10 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
             gtk::glib::Propagation::Proceed
         });
     }
+    // Record a weak handle to the window so the MPRIS player (created lazily on
+    // first media message) can present/close it for Raise/Quit.
+    *shared.window.borrow_mut() = Some(window.downgrade());
+
     window.present();
 
     // Create the off-screen browser bound to this drawing area.
