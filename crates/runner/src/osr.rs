@@ -195,6 +195,73 @@ wrap_app! {
                 }
             }
         }
+
+        fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
+            Some(OsrBrowserProcessHandler::new())
+        }
+    }
+}
+
+wrap_browser_process_handler! {
+    struct OsrBrowserProcessHandler {}
+
+    impl BrowserProcessHandler {
+        // A second launch of an app sharing this profile cannot start its own
+        // CEF process (CEF is a singleton per root_cache_path), so CEF forwards
+        // that process's command line here, to the already-running primary, and
+        // the second process exits. We open a new window for it — Chrome's
+        // model: same-profile apps run as multiple windows in one process,
+        // sharing cookies/logins. This runs on the CEF UI thread, which is the
+        // GTK main thread (CEF is pumped from the GTK loop), so touching GTK
+        // widgets here is safe.
+        fn on_already_running_app_relaunch(
+            &self,
+            command_line: Option<&mut CommandLine>,
+            _current_directory: Option<&CefString>,
+        ) -> i32 {
+            if let Some(cmd) = command_line {
+                let mut list = CefStringList::default();
+                cmd.argv(Some(&mut list));
+                let args: Vec<String> = list.into_iter().collect();
+
+                // The app id is the first non-flag, non-scheme arg (CEF injects
+                // its own --switches; scheme handler URLs contain ':').
+                let id = args
+                    .iter()
+                    .skip(1)
+                    .find(|a| !a.starts_with('-') && !a.contains(':'));
+                // An optional scheme URL arg (mailto:, webcal:, …) the relaunch
+                // carried, expanded via the app's handlers like run() does.
+                let url_arg = args
+                    .iter()
+                    .skip(1)
+                    .find(|a| !a.starts_with('-') && a.contains(':'));
+
+                if let Some(id) = id {
+                    match WebApp::load(id) {
+                        Ok(webapp) => {
+                            let url_override = url_arg.and_then(|arg| {
+                                let scheme = arg.split(':').next().unwrap_or("").to_string();
+                                webapp
+                                    .handlers
+                                    .iter()
+                                    .find(|h| h.scheme() == scheme)
+                                    .map(|h| qwa_core::handlers::expand(&h.template, arg))
+                            });
+                            GTK_APP.with(|cell| {
+                                if let Some(app) = cell.borrow().as_ref() {
+                                    open_window(app, webapp, url_override);
+                                } else {
+                                    tracing::warn!("relaunch before GTK app ready; ignoring");
+                                }
+                            });
+                        }
+                        Err(e) => tracing::warn!("relaunch for unknown app '{id}': {e}"),
+                    }
+                }
+            }
+            1
+        }
     }
 }
 
@@ -277,6 +344,7 @@ wrap_render_handler! {
 wrap_life_span_handler! {
     struct OsrLifeSpanHandler {
         shared: Rc<Shared>,
+        app: Rc<WebApp>,
     }
 
     impl LifeSpanHandler {
@@ -316,10 +384,9 @@ wrap_life_span_handler! {
                 if crate::app::route_to_installed_app(&url) {
                     return 1;
                 }
-                let app = crate::app::current_app();
-                let mode = app.as_ref().map(|a| a.link_scope()).unwrap_or_default();
-                let scope = app.as_ref().and_then(|a| a.scope.clone());
-                let app_url = app.map(|a| a.url).unwrap_or_default();
+                let mode = self.app.link_scope();
+                let scope = self.app.scope.clone();
+                let app_url = self.app.url.clone();
                 let home = crate::app::current_page_url(browser.as_deref_mut()).unwrap_or(app_url);
 
                 // A user-opened popup leaves for the system browser only when it
@@ -356,6 +423,7 @@ wrap_load_handler! {
         shared: Rc<Shared>,
         back: gtk::Button,
         forward: gtk::Button,
+        app: Rc<WebApp>,
     }
 
     impl LoadHandler {
@@ -391,7 +459,7 @@ wrap_load_handler! {
             // Inject the app's per-app custom CSS after each page finishes
             // loading, by appending a <style> element to the document head.
             if is_loading == 0 {
-                if let Some(css) = crate::app::current_app().and_then(|a| a.custom_css) {
+                if let Some(css) = self.app.custom_css.clone() {
                     if let Some(frame) = browser.and_then(|b| b.main_frame()) {
                         let js = format!(
                             "(function(){{var s=document.createElement('style');\
@@ -524,7 +592,9 @@ wrap_resource_request_handler! {
 }
 
 wrap_permission_handler! {
-    struct OsrPermissionHandler {}
+    struct OsrPermissionHandler {
+        app: Rc<WebApp>,
+    }
 
     impl PermissionHandler {
         fn on_show_permission_prompt(
@@ -546,9 +616,8 @@ wrap_permission_handler! {
                 | PermissionRequestTypes::CAMERA_PAN_TILT_ZOOM.get_raw();
             let geo = PermissionRequestTypes::GEOLOCATION.get_raw();
 
-            let app = crate::app::current_app();
-            let allow_cam_mic = app.as_ref().map(|a| a.allow_camera_mic).unwrap_or(false);
-            let allow_location = app.as_ref().map(|a| a.allow_location).unwrap_or(false);
+            let allow_cam_mic = self.app.allow_camera_mic;
+            let allow_location = self.app.allow_location;
 
             let wants_cam_mic = requested_permissions & cam_mic != 0;
             let wants_geo = requested_permissions & geo != 0;
@@ -580,9 +649,7 @@ wrap_permission_handler! {
             requested_permissions: u32,
             callback: Option<&mut MediaAccessCallback>,
         ) -> i32 {
-            let allow = crate::app::current_app()
-                .map(|a| a.allow_camera_mic)
-                .unwrap_or(true);
+            let allow = self.app.allow_camera_mic;
             if let Some(callback) = callback {
                 // Grant exactly what was requested when allowed, else nothing.
                 callback.cont(if allow { requested_permissions } else { 0 });
@@ -667,6 +734,7 @@ wrap_client! {
         area: gtk::DrawingArea,
         back: gtk::Button,
         forward: gtk::Button,
+        app: Rc<WebApp>,
     }
 
     impl Client {
@@ -675,18 +743,17 @@ wrap_client! {
         }
 
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
-            Some(OsrLifeSpanHandler::new(self.shared.clone()))
+            Some(OsrLifeSpanHandler::new(self.shared.clone(), self.app.clone()))
         }
 
         fn request_handler(&self) -> Option<RequestHandler> {
-            let (scope, mode, adblock) = crate::app::current_app()
-                .map(|a| (a.scope.clone(), a.link_scope(), a.adblock))
-                .unwrap_or((None, qwa_core::LinkScope::default(), false));
+            // Per-window app context: derive routing policy from THIS window's
+            // app, not current_app() (one process now hosts several apps).
             Some(OsrRequestHandler::new(
                 self.shared.clone(),
-                scope,
-                mode,
-                adblock,
+                self.app.scope.clone(),
+                self.app.link_scope(),
+                self.app.adblock,
             ))
         }
 
@@ -695,17 +762,400 @@ wrap_client! {
                 self.shared.clone(),
                 self.back.clone(),
                 self.forward.clone(),
+                self.app.clone(),
             ))
         }
 
         fn permission_handler(&self) -> Option<PermissionHandler> {
-            Some(OsrPermissionHandler::new())
+            Some(OsrPermissionHandler::new(self.app.clone()))
         }
 
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(OsrDownloadHandler::new())
         }
     }
+}
+
+thread_local! {
+    /// The running GApplication, stashed so the BrowserProcessHandler relaunch
+    /// callback (which has no other handle to it) can open windows on it.
+    static GTK_APP: RefCell<Option<adw::Application>> = const { RefCell::new(None) };
+}
+
+/// Build and present one app window (header + nav + profile cue + drawing area)
+/// and create its off-screen CEF browser. Each window owns its own `Shared`
+/// state and per-window `WebApp` context (threaded into the handlers), so one
+/// process can host several same-profile apps as separate windows.
+///
+/// `url_override` is the URL to load instead of the app's home page — used for
+/// the initial window when launched as a scheme handler (mailto:, …); relaunch
+/// windows pass it through too, else load `webapp.url`.
+fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<String>) {
+    // Per-window app context shared (immutably) into every handler.
+    let app_ctx = Rc::new(webapp.clone());
+
+    let url = url_override.unwrap_or_else(|| webapp.url.clone());
+    let title = webapp.name.clone();
+    let app_id = webapp.id.clone();
+    let color_scheme = webapp.color_scheme;
+    // The login profile this app uses; surfaced as a colored dot + label in the
+    // header so the cue (e.g. Work vs Private) persists while using the app.
+    let profile = webapp.profile.clone();
+    // When enabled, closing the window hides it (keeping the process + CEF
+    // browser alive) so desktop notifications keep arriving.
+    let background = webapp.run_in_background;
+
+    // This window's own render/browser state.
+    let shared = Rc::new(Shared::default());
+
+    // Restore last-session geometry + zoom; fall back to the configured size.
+    let (init_w, init_h, init_max) = match load_window_state(&webapp.id) {
+        Some((m, w, h, z)) => {
+            shared.zoom.set(z);
+            (w, h, m)
+        }
+        None => (webapp.window.0 as i32, webapp.window.1 as i32, false),
+    };
+
+    // Match the window chrome to a forced color scheme (web content is
+    // handled separately via the blink preferredColorScheme switch). The
+    // StyleManager is process-level (best-effort with multiple windows).
+    match color_scheme {
+        qwa_core::ColorScheme::Light => {
+            adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceLight)
+        }
+        qwa_core::ColorScheme::Dark => {
+            adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark)
+        }
+        qwa_core::ColorScheme::System => {}
+    }
+
+    let header = adw::HeaderBar::new();
+
+    // Navigation controls. Back/forward start insensitive and are toggled
+    // by the LoadHandler; reload/stop is a simple reload for now.
+    let back = gtk::Button::from_icon_name("go-previous-symbolic");
+    back.set_tooltip_text(Some("Back"));
+    back.set_sensitive(false);
+    let forward = gtk::Button::from_icon_name("go-next-symbolic");
+    forward.set_tooltip_text(Some("Forward"));
+    forward.set_sensitive(false);
+    let reload = gtk::Button::from_icon_name("view-refresh-symbolic");
+    reload.set_tooltip_text(Some("Reload"));
+    header.pack_start(&back);
+    header.pack_start(&forward);
+    header.pack_start(&reload);
+
+    // Profile cue: a small colored dot + label so the user always knows
+    // which login profile (e.g. Work vs Private) this app is running under.
+    {
+        let profile_label = profile
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("Private")
+            .to_string();
+        let (pr, pg, pb) = qwa_core::profile_color(profile.as_deref());
+        let dot = gtk::DrawingArea::builder()
+            .content_width(12)
+            .content_height(12)
+            .valign(gtk::Align::Center)
+            .build();
+        dot.set_draw_func(move |_area, cr, w, h| {
+            let d = (w.min(h) as f64) - 2.0;
+            let radius = (d / 2.0).max(0.0);
+            cr.arc(
+                w as f64 / 2.0,
+                h as f64 / 2.0,
+                radius,
+                0.0,
+                std::f64::consts::TAU,
+            );
+            cr.set_source_rgb(pr as f64 / 255.0, pg as f64 / 255.0, pb as f64 / 255.0);
+            let _ = cr.fill();
+        });
+        let label = gtk::Label::new(Some(&profile_label));
+        label.add_css_class("dim-label");
+        let profile_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        profile_box.set_valign(gtk::Align::Center);
+        profile_box.append(&dot);
+        profile_box.append(&label);
+        header.pack_end(&profile_box);
+    }
+
+    {
+        let shared = shared.clone();
+        back.connect_clicked(move |_| {
+            if let Some(b) = shared.browser.borrow().as_ref() {
+                b.go_back();
+            }
+        });
+    }
+    {
+        let shared = shared.clone();
+        forward.connect_clicked(move |_| {
+            if let Some(b) = shared.browser.borrow().as_ref() {
+                b.go_forward();
+            }
+        });
+    }
+    {
+        let shared = shared.clone();
+        reload.connect_clicked(move |_| {
+            if let Some(b) = shared.browser.borrow().as_ref() {
+                b.reload();
+            }
+        });
+    }
+
+    let area = gtk::DrawingArea::new();
+    area.set_hexpand(true);
+    area.set_vexpand(true);
+
+    {
+        let shared = shared.clone();
+        area.set_draw_func(move |_area, cr, w, h| {
+            if let Some(frame) = shared.frame.borrow().as_ref() {
+                let stride = frame.width * 4;
+                if let Ok(surface) = gtk::cairo::ImageSurface::create_for_data(
+                    frame.buf.clone(),
+                    gtk::cairo::Format::ARgb32,
+                    frame.width,
+                    frame.height,
+                    stride,
+                ) {
+                    // The buffer is at physical resolution (logical * scale);
+                    // scale it down to fill the logical drawing area so the
+                    // image stays crisp on HiDPI displays.
+                    let sx = w as f64 / frame.width.max(1) as f64;
+                    let sy = h as f64 / frame.height.max(1) as f64;
+                    cr.scale(sx, sy);
+                    if cr.set_source_surface(&surface, 0.0, 0.0).is_ok() {
+                        let _ = cr.paint();
+                    }
+                }
+            }
+        });
+    }
+
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&area));
+
+    let window = adw::ApplicationWindow::builder()
+        .application(app)
+        .title(&title)
+        .default_width(init_w)
+        .default_height(init_h)
+        .content(&toolbar)
+        .build();
+    if init_max {
+        window.maximize();
+    }
+    // Persist geometry + zoom on close so the next launch restores them.
+    {
+        let shared = shared.clone();
+        let app_id = app_id.clone();
+        window.connect_close_request(move |win| {
+            let (w, h) = win.default_size();
+            save_window_state(&app_id, win.is_maximized(), w, h, shared.zoom.get());
+            // Background apps stay alive: hide the window (and keep the CEF
+            // browser running) instead of quitting, so notifications keep
+            // arriving.
+            if background {
+                win.set_visible(false);
+                return gtk::glib::Propagation::Stop;
+            }
+            gtk::glib::Propagation::Proceed
+        });
+    }
+    window.present();
+
+    // Create the off-screen browser bound to this drawing area.
+    let mut client = OsrClient::new(
+        shared.clone(),
+        area.clone(),
+        back.clone(),
+        forward.clone(),
+        app_ctx.clone(),
+    );
+    let window_info = WindowInfo {
+        windowless_rendering_enabled: 1,
+        ..Default::default()
+    };
+    let browser_settings = BrowserSettings::default();
+    let cef_url = CefString::from(url.as_str());
+    browser_host_create_browser(
+        Some(&window_info),
+        Some(&mut client),
+        Some(&cef_url),
+        Some(&browser_settings),
+        None,
+        None,
+    );
+
+    // Tell CEF when the view is resized so it re-renders at the new size.
+    {
+        let shared = shared.clone();
+        area.connect_resize(move |_area, _w, _h| {
+            if let Some(browser) = shared.browser.borrow().as_ref() {
+                if let Some(host) = browser.host() {
+                    host.was_resized();
+                }
+            }
+        });
+    }
+
+    // Re-query screen info (device scale) when the display scale changes,
+    // e.g. moving the window between monitors of different DPI.
+    {
+        let shared = shared.clone();
+        area.connect_scale_factor_notify(move |_area| {
+            if let Some(browser) = shared.browser.borrow().as_ref() {
+                if let Some(host) = browser.host() {
+                    host.notify_screen_info_changed();
+                    host.was_resized();
+                }
+            }
+        });
+    }
+
+    // --- Input forwarding (#11 it.2): mouse, scroll, keyboard, focus. ---
+    area.set_focusable(true);
+
+    let motion = gtk::EventControllerMotion::new();
+    {
+        let shared = shared.clone();
+        motion.connect_motion(move |_, x, y| {
+            shared.mouse.set((x as i32, y as i32));
+            with_host(&shared, |h| {
+                h.send_mouse_move_event(Some(&mouse_event(x as i32, y as i32)), 0)
+            });
+        });
+    }
+    area.add_controller(motion);
+
+    let click = gtk::GestureClick::new();
+    click.set_button(0); // listen for all buttons
+    {
+        let shared = shared.clone();
+        let area = area.clone();
+        click.connect_pressed(move |gesture, n_press, x, y| {
+            area.grab_focus();
+            let button = map_button(gesture.current_button());
+            with_host(&shared, |h| {
+                h.set_focus(1);
+                h.send_mouse_click_event(
+                    Some(&mouse_event(x as i32, y as i32)),
+                    button,
+                    0,
+                    n_press,
+                );
+            });
+        });
+    }
+    {
+        let shared = shared.clone();
+        click.connect_released(move |gesture, n_press, x, y| {
+            let button = map_button(gesture.current_button());
+            with_host(&shared, |h| {
+                h.send_mouse_click_event(
+                    Some(&mouse_event(x as i32, y as i32)),
+                    button,
+                    1,
+                    n_press,
+                );
+            });
+        });
+    }
+    area.add_controller(click);
+
+    let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+    {
+        let shared = shared.clone();
+        scroll.connect_scroll(move |ctrl, dx, dy| {
+            // Ctrl + scroll = zoom, like a browser.
+            if ctrl
+                .current_event_state()
+                .contains(gtk::gdk::ModifierType::CONTROL_MASK)
+            {
+                set_zoom(&shared, shared.zoom.get() - dy * 0.5);
+                return gtk::glib::Propagation::Stop;
+            }
+            let (mx, my) = shared.mouse.get();
+            with_host(&shared, |h| {
+                h.send_mouse_wheel_event(
+                    Some(&mouse_event(mx, my)),
+                    (-dx * 40.0) as i32,
+                    (-dy * 40.0) as i32,
+                )
+            });
+            gtk::glib::Propagation::Stop
+        });
+    }
+    area.add_controller(scroll);
+
+    let keys = gtk::EventControllerKey::new();
+    {
+        let shared = shared.clone();
+        keys.connect_key_pressed(move |_, keyval, _code, state| {
+            // Ctrl +/=/-/0 = zoom in / out / reset (handled here, not sent).
+            if state.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+                use gtk::gdk::Key;
+                let z = shared.zoom.get();
+                if keyval == Key::plus || keyval == Key::equal || keyval == Key::KP_Add {
+                    set_zoom(&shared, z + 0.5);
+                    return gtk::glib::Propagation::Stop;
+                }
+                if keyval == Key::minus || keyval == Key::KP_Subtract {
+                    set_zoom(&shared, z - 0.5);
+                    return gtk::glib::Propagation::Stop;
+                }
+                if keyval == Key::_0 || keyval == Key::KP_0 {
+                    set_zoom(&shared, 0.0);
+                    return gtk::glib::Propagation::Stop;
+                }
+            }
+            let vk = vk_from_keyval(keyval);
+            let modifiers = cef_modifiers(state);
+            with_host(&shared, |h| {
+                h.send_key_event(Some(&KeyEvent {
+                    type_: KeyEventType::RAWKEYDOWN,
+                    windows_key_code: vk,
+                    modifiers,
+                    ..Default::default()
+                }));
+                if let Some(c) = keyval.to_unicode() {
+                    if !c.is_control() {
+                        h.send_key_event(Some(&KeyEvent {
+                            type_: KeyEventType::CHAR,
+                            character: c as u16,
+                            windows_key_code: vk,
+                            modifiers,
+                            ..Default::default()
+                        }));
+                    }
+                }
+            });
+            gtk::glib::Propagation::Proceed
+        });
+    }
+    {
+        let shared = shared.clone();
+        keys.connect_key_released(move |_, keyval, _code, state| {
+            let vk = vk_from_keyval(keyval);
+            let modifiers = cef_modifiers(state);
+            with_host(&shared, |h| {
+                h.send_key_event(Some(&KeyEvent {
+                    type_: KeyEventType::KEYUP,
+                    windows_key_code: vk,
+                    modifiers,
+                    ..Default::default()
+                }))
+            });
+        });
+    }
+    area.add_controller(keys);
+    area.grab_focus();
 }
 
 /// Initialize CEF (off-screen) and run the GNOME window, pumping CEF from the
@@ -731,407 +1181,53 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         sandbox_info,
     ) != 1
     {
-        // The most common cause is the profile already being in use: CEF allows
-        // only one process per profile data dir, so another web app SHARING this
-        // profile (or a leftover instance of this one) blocks startup. Exit
-        // cleanly with an actionable message instead of panicking.
-        tracing::error!(
-            "could not start '{}': its login profile ('{}') is already in use by \
-             another running web app that shares it (or a leftover instance). \
-             Close that app and try again.",
-            webapp.name,
+        // initialize() != 1 means CEF forwarded our command line to the
+        // already-running primary process that owns this profile's data dir
+        // (CEF is a singleton per root_cache_path). That primary's
+        // BrowserProcessHandler::on_already_running_app_relaunch opens a window
+        // for us; this process has nothing more to do. This is the normal
+        // same-profile path (Chrome's model), not an error.
+        tracing::info!(
+            "forwarded to existing instance for profile '{}'",
             webapp.profile_key()
         );
         return;
     }
 
-    let shared = Rc::new(Shared::default());
-
+    // One GApplication per *profile* (not per app): same-profile apps share the
+    // single CEF process, so they must also share one GApplication. The id is
+    // sanitized to a valid application id (alphanumeric / '-' segments, never
+    // leading with a digit or '-').
     let application = adw::Application::builder()
-        .application_id(&format!("{}.{}", qwa_core::APP_ID, webapp.id))
+        .application_id(&format!(
+            "{}.{}",
+            qwa_core::APP_ID,
+            sanitize_app_id(webapp.profile_key())
+        ))
         .build();
 
     // If launched as a scheme handler (mailto:, webcal:, …), open the target
-    // URL the matching handler expands to; otherwise the app's home page.
-    let url = crate::app::url_arg()
-        .and_then(|arg| {
-            let scheme = arg.split(':').next().unwrap_or("").to_string();
-            webapp
-                .handlers
-                .iter()
-                .find(|h| h.scheme() == scheme)
-                .map(|h| qwa_core::handlers::expand(&h.template, &arg))
-        })
-        .unwrap_or_else(|| webapp.url.clone());
-    let title = webapp.name.clone();
-    let app_id = webapp.id.clone();
-    let color_scheme = webapp.color_scheme;
-    // The login profile this app uses; surfaced as a colored dot + label in the
-    // header so the cue (e.g. Work vs Private) persists while using the app.
-    let profile = webapp.profile.clone();
-    // When enabled, closing the window hides it (keeping the process + CEF
-    // browser alive) so desktop notifications keep arriving.
-    let background = webapp.run_in_background;
-    // Restore last-session geometry + zoom; fall back to the configured size.
-    let (init_w, init_h, init_max) = match load_window_state(&webapp.id) {
-        Some((m, w, h, z)) => {
-            shared.zoom.set(z);
-            (w, h, m)
-        }
-        None => (webapp.window.0 as i32, webapp.window.1 as i32, false),
-    };
-
-    // Single-instance window: a re-launch (adw::Application routes it to the
-    // running primary instance's `activate`) re-shows this window instead of
-    // building a second one. Essential for background apps, whose hidden
-    // window must be re-presented rather than duplicated.
-    let window_cell: Rc<RefCell<Option<adw::ApplicationWindow>>> = Rc::new(RefCell::new(None));
+    // URL the matching handler expands to; otherwise the app's home page. This
+    // override only applies to the INITIAL window — relaunch windows compute
+    // their own from the forwarded command line.
+    let url_override = crate::app::url_arg().and_then(|arg| {
+        let scheme = arg.split(':').next().unwrap_or("").to_string();
+        webapp
+            .handlers
+            .iter()
+            .find(|h| h.scheme() == scheme)
+            .map(|h| qwa_core::handlers::expand(&h.template, &arg))
+    });
 
     application.connect_activate(move |app| {
-        // Re-launch of an already-running instance: just re-show the existing
-        // window (e.g. a background app whose window was hidden on close).
-        if let Some(window) = window_cell.borrow().as_ref() {
-            window.present();
-            return;
-        }
+        // Stash the running GApplication so the relaunch handler can open
+        // windows on it for forwarded same-profile apps.
+        GTK_APP.with(|cell| *cell.borrow_mut() = Some(app.clone()));
 
-        // Match the window chrome to a forced color scheme (web content is
-        // handled separately via the blink preferredColorScheme switch).
-        match color_scheme {
-            qwa_core::ColorScheme::Light => {
-                adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceLight)
-            }
-            qwa_core::ColorScheme::Dark => {
-                adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark)
-            }
-            qwa_core::ColorScheme::System => {}
-        }
+        open_window(app, webapp.clone(), url_override.clone());
 
-        let header = adw::HeaderBar::new();
-
-        // Navigation controls. Back/forward start insensitive and are toggled
-        // by the LoadHandler; reload/stop is a simple reload for now.
-        let back = gtk::Button::from_icon_name("go-previous-symbolic");
-        back.set_tooltip_text(Some("Back"));
-        back.set_sensitive(false);
-        let forward = gtk::Button::from_icon_name("go-next-symbolic");
-        forward.set_tooltip_text(Some("Forward"));
-        forward.set_sensitive(false);
-        let reload = gtk::Button::from_icon_name("view-refresh-symbolic");
-        reload.set_tooltip_text(Some("Reload"));
-        header.pack_start(&back);
-        header.pack_start(&forward);
-        header.pack_start(&reload);
-
-        // Profile cue: a small colored dot + label so the user always knows
-        // which login profile (e.g. Work vs Private) this app is running under.
-        {
-            let profile_label = profile
-                .as_deref()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or("Private")
-                .to_string();
-            let (pr, pg, pb) = qwa_core::profile_color(profile.as_deref());
-            let dot = gtk::DrawingArea::builder()
-                .content_width(12)
-                .content_height(12)
-                .valign(gtk::Align::Center)
-                .build();
-            dot.set_draw_func(move |_area, cr, w, h| {
-                let d = (w.min(h) as f64) - 2.0;
-                let radius = (d / 2.0).max(0.0);
-                cr.arc(
-                    w as f64 / 2.0,
-                    h as f64 / 2.0,
-                    radius,
-                    0.0,
-                    std::f64::consts::TAU,
-                );
-                cr.set_source_rgb(pr as f64 / 255.0, pg as f64 / 255.0, pb as f64 / 255.0);
-                let _ = cr.fill();
-            });
-            let label = gtk::Label::new(Some(&profile_label));
-            label.add_css_class("dim-label");
-            let profile_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-            profile_box.set_valign(gtk::Align::Center);
-            profile_box.append(&dot);
-            profile_box.append(&label);
-            header.pack_end(&profile_box);
-        }
-
-        {
-            let shared = shared.clone();
-            back.connect_clicked(move |_| {
-                if let Some(b) = shared.browser.borrow().as_ref() {
-                    b.go_back();
-                }
-            });
-        }
-        {
-            let shared = shared.clone();
-            forward.connect_clicked(move |_| {
-                if let Some(b) = shared.browser.borrow().as_ref() {
-                    b.go_forward();
-                }
-            });
-        }
-        {
-            let shared = shared.clone();
-            reload.connect_clicked(move |_| {
-                if let Some(b) = shared.browser.borrow().as_ref() {
-                    b.reload();
-                }
-            });
-        }
-
-        let area = gtk::DrawingArea::new();
-        area.set_hexpand(true);
-        area.set_vexpand(true);
-
-        {
-            let shared = shared.clone();
-            area.set_draw_func(move |_area, cr, w, h| {
-                if let Some(frame) = shared.frame.borrow().as_ref() {
-                    let stride = frame.width * 4;
-                    if let Ok(surface) = gtk::cairo::ImageSurface::create_for_data(
-                        frame.buf.clone(),
-                        gtk::cairo::Format::ARgb32,
-                        frame.width,
-                        frame.height,
-                        stride,
-                    ) {
-                        // The buffer is at physical resolution (logical * scale);
-                        // scale it down to fill the logical drawing area so the
-                        // image stays crisp on HiDPI displays.
-                        let sx = w as f64 / frame.width.max(1) as f64;
-                        let sy = h as f64 / frame.height.max(1) as f64;
-                        cr.scale(sx, sy);
-                        if cr.set_source_surface(&surface, 0.0, 0.0).is_ok() {
-                            let _ = cr.paint();
-                        }
-                    }
-                }
-            });
-        }
-
-        let toolbar = adw::ToolbarView::new();
-        toolbar.add_top_bar(&header);
-        toolbar.set_content(Some(&area));
-
-        let window = adw::ApplicationWindow::builder()
-            .application(app)
-            .title(&title)
-            .default_width(init_w)
-            .default_height(init_h)
-            .content(&toolbar)
-            .build();
-        if init_max {
-            window.maximize();
-        }
-        // Remember the window so a re-launch re-shows it (single instance).
-        *window_cell.borrow_mut() = Some(window.clone());
-        // Persist geometry + zoom on close so the next launch restores them.
-        {
-            let shared = shared.clone();
-            let app_id = app_id.clone();
-            window.connect_close_request(move |win| {
-                let (w, h) = win.default_size();
-                save_window_state(&app_id, win.is_maximized(), w, h, shared.zoom.get());
-                // Background apps stay alive: hide the window (and keep the CEF
-                // browser running) instead of quitting, so notifications keep
-                // arriving. A re-launch re-presents this same window.
-                if background {
-                    win.set_visible(false);
-                    return gtk::glib::Propagation::Stop;
-                }
-                gtk::glib::Propagation::Proceed
-            });
-        }
-        window.present();
-
-        // Create the off-screen browser bound to this drawing area.
-        let mut client =
-            OsrClient::new(shared.clone(), area.clone(), back.clone(), forward.clone());
-        let window_info = WindowInfo {
-            windowless_rendering_enabled: 1,
-            ..Default::default()
-        };
-        let browser_settings = BrowserSettings::default();
-        let cef_url = CefString::from(url.as_str());
-        browser_host_create_browser(
-            Some(&window_info),
-            Some(&mut client),
-            Some(&cef_url),
-            Some(&browser_settings),
-            None,
-            None,
-        );
-
-        // Tell CEF when the view is resized so it re-renders at the new size.
-        {
-            let shared = shared.clone();
-            area.connect_resize(move |_area, _w, _h| {
-                if let Some(browser) = shared.browser.borrow().as_ref() {
-                    if let Some(host) = browser.host() {
-                        host.was_resized();
-                    }
-                }
-            });
-        }
-
-        // Re-query screen info (device scale) when the display scale changes,
-        // e.g. moving the window between monitors of different DPI.
-        {
-            let shared = shared.clone();
-            area.connect_scale_factor_notify(move |_area| {
-                if let Some(browser) = shared.browser.borrow().as_ref() {
-                    if let Some(host) = browser.host() {
-                        host.notify_screen_info_changed();
-                        host.was_resized();
-                    }
-                }
-            });
-        }
-
-        // --- Input forwarding (#11 it.2): mouse, scroll, keyboard, focus. ---
-        area.set_focusable(true);
-
-        let motion = gtk::EventControllerMotion::new();
-        {
-            let shared = shared.clone();
-            motion.connect_motion(move |_, x, y| {
-                shared.mouse.set((x as i32, y as i32));
-                with_host(&shared, |h| {
-                    h.send_mouse_move_event(Some(&mouse_event(x as i32, y as i32)), 0)
-                });
-            });
-        }
-        area.add_controller(motion);
-
-        let click = gtk::GestureClick::new();
-        click.set_button(0); // listen for all buttons
-        {
-            let shared = shared.clone();
-            let area = area.clone();
-            click.connect_pressed(move |gesture, n_press, x, y| {
-                area.grab_focus();
-                let button = map_button(gesture.current_button());
-                with_host(&shared, |h| {
-                    h.set_focus(1);
-                    h.send_mouse_click_event(
-                        Some(&mouse_event(x as i32, y as i32)),
-                        button,
-                        0,
-                        n_press,
-                    );
-                });
-            });
-        }
-        {
-            let shared = shared.clone();
-            click.connect_released(move |gesture, n_press, x, y| {
-                let button = map_button(gesture.current_button());
-                with_host(&shared, |h| {
-                    h.send_mouse_click_event(
-                        Some(&mouse_event(x as i32, y as i32)),
-                        button,
-                        1,
-                        n_press,
-                    );
-                });
-            });
-        }
-        area.add_controller(click);
-
-        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
-        {
-            let shared = shared.clone();
-            scroll.connect_scroll(move |ctrl, dx, dy| {
-                // Ctrl + scroll = zoom, like a browser.
-                if ctrl
-                    .current_event_state()
-                    .contains(gtk::gdk::ModifierType::CONTROL_MASK)
-                {
-                    set_zoom(&shared, shared.zoom.get() - dy * 0.5);
-                    return gtk::glib::Propagation::Stop;
-                }
-                let (mx, my) = shared.mouse.get();
-                with_host(&shared, |h| {
-                    h.send_mouse_wheel_event(
-                        Some(&mouse_event(mx, my)),
-                        (-dx * 40.0) as i32,
-                        (-dy * 40.0) as i32,
-                    )
-                });
-                gtk::glib::Propagation::Stop
-            });
-        }
-        area.add_controller(scroll);
-
-        let keys = gtk::EventControllerKey::new();
-        {
-            let shared = shared.clone();
-            keys.connect_key_pressed(move |_, keyval, _code, state| {
-                // Ctrl +/=/-/0 = zoom in / out / reset (handled here, not sent).
-                if state.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
-                    use gtk::gdk::Key;
-                    let z = shared.zoom.get();
-                    if keyval == Key::plus || keyval == Key::equal || keyval == Key::KP_Add {
-                        set_zoom(&shared, z + 0.5);
-                        return gtk::glib::Propagation::Stop;
-                    }
-                    if keyval == Key::minus || keyval == Key::KP_Subtract {
-                        set_zoom(&shared, z - 0.5);
-                        return gtk::glib::Propagation::Stop;
-                    }
-                    if keyval == Key::_0 || keyval == Key::KP_0 {
-                        set_zoom(&shared, 0.0);
-                        return gtk::glib::Propagation::Stop;
-                    }
-                }
-                let vk = vk_from_keyval(keyval);
-                let modifiers = cef_modifiers(state);
-                with_host(&shared, |h| {
-                    h.send_key_event(Some(&KeyEvent {
-                        type_: KeyEventType::RAWKEYDOWN,
-                        windows_key_code: vk,
-                        modifiers,
-                        ..Default::default()
-                    }));
-                    if let Some(c) = keyval.to_unicode() {
-                        if !c.is_control() {
-                            h.send_key_event(Some(&KeyEvent {
-                                type_: KeyEventType::CHAR,
-                                character: c as u16,
-                                windows_key_code: vk,
-                                modifiers,
-                                ..Default::default()
-                            }));
-                        }
-                    }
-                });
-                gtk::glib::Propagation::Proceed
-            });
-        }
-        {
-            let shared = shared.clone();
-            keys.connect_key_released(move |_, keyval, _code, state| {
-                let vk = vk_from_keyval(keyval);
-                let modifiers = cef_modifiers(state);
-                with_host(&shared, |h| {
-                    h.send_key_event(Some(&KeyEvent {
-                        type_: KeyEventType::KEYUP,
-                        windows_key_code: vk,
-                        modifiers,
-                        ..Default::default()
-                    }))
-                });
-            });
-        }
-        area.add_controller(keys);
-        area.grab_focus();
-
-        // Drive CEF's work from the GTK main loop (~60fps).
+        // Drive CEF's work from the GTK main loop (~60fps). Registered once for
+        // the whole process; it services every window's browser.
         gtk::glib::timeout_add_local(Duration::from_millis(16), || {
             do_message_loop_work();
             gtk::glib::ControlFlow::Continue
@@ -1143,4 +1239,26 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
     application.run_with_args::<&str>(&["gnome-quick-web-apps-runner"]);
 
     shutdown();
+}
+
+/// Sanitize a profile key into a valid GApplication id segment: keep ASCII
+/// alphanumerics and '-', map everything else (notably '.') to '_', and ensure
+/// it does not start with a digit or '-' (prefix an '_' if it would).
+fn sanitize_app_id(key: &str) -> String {
+    let mut s: String = key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if s.is_empty() {
+        s.push('_');
+    } else if s.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
+        s.insert(0, '_');
+    }
+    s
 }
