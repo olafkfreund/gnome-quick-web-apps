@@ -488,6 +488,75 @@ wrap_permission_handler! {
     }
 }
 
+/// The directory downloads are saved to: the user's XDG Downloads dir when
+/// resolvable, otherwise `$HOME/Downloads`. Created if it does not exist.
+fn downloads_dir() -> std::path::PathBuf {
+    let dir = std::env::var_os("XDG_DOWNLOAD_DIR")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            home.join("Downloads")
+        });
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("failed to create downloads dir {}: {e}", dir.display());
+    }
+    dir
+}
+
+wrap_download_handler! {
+    struct OsrDownloadHandler {}
+
+    impl DownloadHandler {
+        fn on_before_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            suggested_name: Option<&CefString>,
+            callback: Option<&mut BeforeDownloadCallback>,
+        ) -> i32 {
+            // Pick a file name: the suggested name from CEF, falling back to the
+            // download item's own suggestion, then a generic default.
+            let name = suggested_name
+                .map(|n| n.to_string())
+                .filter(|n| !n.is_empty())
+                .or_else(|| {
+                    download_item
+                        .map(|item| CefString::from(&item.suggested_file_name()).to_string())
+                        .filter(|n| !n.is_empty())
+                })
+                .unwrap_or_else(|| "download".to_string());
+
+            let dest = downloads_dir().join(&name);
+            let dest_str = dest.to_string_lossy().to_string();
+            tracing::info!("download saving to {dest_str}");
+
+            if let Some(callback) = callback {
+                // cont(path, show_dialog): 0 = save directly to `path` without a
+                // modal OS save dialog (OSR has no native dialog UI anyway).
+                callback.cont(Some(&CefString::from(dest_str.as_str())), 0);
+            }
+            1 // handled
+        }
+
+        fn on_download_updated(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            _callback: Option<&mut DownloadItemCallback>,
+        ) {
+            if let Some(item) = download_item {
+                if item.is_complete() == 1 {
+                    let path = CefString::from(&item.full_path()).to_string();
+                    tracing::info!("download complete: {path}");
+                }
+            }
+        }
+    }
+}
+
 wrap_client! {
     struct OsrClient {
         shared: Rc<Shared>,
@@ -527,6 +596,10 @@ wrap_client! {
 
         fn permission_handler(&self) -> Option<PermissionHandler> {
             Some(OsrPermissionHandler::new())
+        }
+
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(OsrDownloadHandler::new())
         }
     }
 }
