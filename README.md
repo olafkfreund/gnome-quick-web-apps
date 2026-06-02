@@ -3,7 +3,7 @@
   <p><b>Turn any website into a first-class GNOME desktop app.</b></p>
   <p>A GTK4 / libadwaita web-app manager with PWA manifest auto-detection,
      automatic icons, true URL-scope confinement, and bundled Chromium (CEF)
-     rendering for perfect site compatibility — including DRM.</p>
+     rendering for broad site and codec compatibility.</p>
 
   <p>
     <a href="https://olafkfreund.github.io/gnome-quick-web-apps/">Website</a> ·
@@ -55,8 +55,8 @@
         <em>YouTube Music with full audio — a real media app, not a tab.</em>
       </td>
       <td align="center" width="50%">
-        <img alt="YouTube video playing with DRM/codec support" src="resources/screenshots/youtube-video.png"><br>
-        <em>Video plays out of the box — Chromium (CEF) means DRM and codecs just work.</em>
+        <img alt="YouTube video playing with full codec support" src="resources/screenshots/youtube-video.png"><br>
+        <em>Video plays out of the box — Chromium (CEF) brings the full codec set.</em>
       </td>
     </tr>
   </table>
@@ -90,9 +90,15 @@ window with its own profile and its own dock identity.
 | Identity | one window | **colored profile indicator** + SSO/CAPTCHA-aware link handling |
 | Discovery | app grid only | app grid **+ GNOME Shell search provider** (planned) |
 
-Rendering uses **CEF (Chromium Embedded Framework)** for maximum site
-compatibility (Widevine/DRM, Chrome-only sites), the same engine choice as
+Rendering uses **CEF (Chromium Embedded Framework)** for broad site
+compatibility (full codec set, Chrome-only sites), the same engine choice as
 upstream's v3.
+
+> **DRM streaming (Apple Music, Netflix, Spotify Web):** these need the
+> proprietary Widevine CDM, which can't be bundled. If you have a
+> Chromium-family browser installed (Chrome, Chromium, Edge, Brave, Vivaldi),
+> Quick Web Apps reuses its CDM automatically; otherwise DRM playback is
+> unavailable.
 
 ## Features
 

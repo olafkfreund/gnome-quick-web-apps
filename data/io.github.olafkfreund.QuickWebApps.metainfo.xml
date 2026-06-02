@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.10" date="2026-06-02">
+      <description>
+        <p>DRM streaming (Apple Music, Netflix, Spotify Web) can now work: if you have a Chromium-family browser installed (Chrome, Chromium, Edge, Brave, Vivaldi), Quick Web Apps reuses its Widevine module automatically, since the embedded engine ships none. Without such a browser, DRM playback remains unavailable.</p>
+      </description>
+    </release>
     <release version="0.1.9" date="2026-06-02">
       <description>
         <p>Fixes a data-loss bug: deleting a web app no longer removes a custom icon you picked from elsewhere on disk. Imported icons are now copied into the app's own icon folder, and deleting an app only ever removes files it owns.</p>
