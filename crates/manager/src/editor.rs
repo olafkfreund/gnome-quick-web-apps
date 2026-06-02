@@ -32,6 +32,41 @@ fn color_scheme_from_index(index: u32) -> ColorScheme {
     }
 }
 
+/// "Identify as" dropdown labels (order matters; see the mapping fns below).
+const UA_LABELS: [&str; 5] = ["Default (Linux)", "Windows", "macOS", "Mobile", "Custom"];
+
+/// Which "Identify as" preset matches the app's stored user agent / mobile flag.
+fn ua_preset_index(ua: Option<&str>, mobile: bool) -> u32 {
+    match ua {
+        Some(u) if u == qwa_core::WINDOWS_UA => 1,
+        Some(u) if u == qwa_core::MACOS_UA => 2,
+        Some(_) => 4, // a custom string
+        None if mobile => 3,
+        None => 0,
+    }
+}
+
+/// Resolve a preset index (+ the custom field) into `(user_agent, mobile)`.
+fn ua_from_index(index: u32, custom: &str) -> (Option<String>, bool) {
+    match index {
+        1 => (Some(qwa_core::WINDOWS_UA.to_string()), false),
+        2 => (Some(qwa_core::MACOS_UA.to_string()), false),
+        3 => (None, true), // mobile site
+        4 => {
+            let t = custom.trim();
+            (
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t.to_string())
+                },
+                false,
+            )
+        }
+        _ => (None, false), // default (Linux)
+    }
+}
+
 /// Map a `LinkScope` to its dropdown row index (order matches `link_model`).
 fn link_scope_to_index(scope: LinkScope) -> u32 {
     match scope {
@@ -175,6 +210,30 @@ pub fn present<F: Fn() + 'static>(
             .unwrap_or_default(),
     ));
 
+    // "Identify as": spoof the browser user agent so OS-gated services work.
+    let ua_now = existing.as_ref().and_then(|a| a.user_agent.clone());
+    let ua_mobile = existing.as_ref().map(|a| a.mobile).unwrap_or(false);
+    let ua_row = adw::ComboRow::builder()
+        .title("Identify as")
+        .subtitle("Spoof the browser OS for sites that require it")
+        .model(&gtk::StringList::new(&UA_LABELS))
+        .build();
+    ua_row.set_selected(ua_preset_index(ua_now.as_deref(), ua_mobile));
+    // Free-text user agent, used only when "Custom" is selected.
+    let ua_entry = adw::EntryRow::builder().title("Custom user agent").build();
+    if ua_preset_index(ua_now.as_deref(), ua_mobile) == 4 {
+        if let Some(u) = ua_now.as_deref() {
+            ua_entry.set_text(u);
+        }
+    }
+    // Only reveal the custom entry when "Custom" is chosen.
+    let sync_ua_entry = {
+        let ua_entry = ua_entry.clone();
+        move |row: &adw::ComboRow| ua_entry.set_visible(row.selected() == 4)
+    };
+    sync_ua_entry(&ua_row);
+    ua_row.connect_selected_notify(sync_ua_entry);
+
     // Block ads/trackers (a curated network blocklist). Off by default.
     let adblock_switch = adw::SwitchRow::builder()
         .title("Block ads and trackers")
@@ -258,6 +317,8 @@ pub fn present<F: Fn() + 'static>(
     group.add(&icon_row);
     group.add(&link_row);
     group.add(&appearance_row);
+    group.add(&ua_row);
+    group.add(&ua_entry);
     group.add(&adblock_switch);
     group.add(&background_switch);
     group.add(&camera_switch);
@@ -447,6 +508,10 @@ pub fn present<F: Fn() + 'static>(
         #[weak]
         appearance_row,
         #[weak]
+        ua_row,
+        #[weak]
+        ua_entry,
+        #[weak]
         adblock_switch,
         #[weak]
         background_switch,
@@ -504,6 +569,9 @@ pub fn present<F: Fn() + 'static>(
             // Keep the legacy bool in sync so older runner builds still behave.
             app.external_links_in_browser = scope != qwa_core::LinkScope::InWindow;
             app.color_scheme = color_scheme_from_index(appearance_row.selected());
+            let (ua, ua_mobile) = ua_from_index(ua_row.selected(), &ua_entry.text());
+            app.user_agent = ua;
+            app.mobile = ua_mobile;
             app.adblock = adblock_switch.is_active();
             app.run_in_background = background_switch.is_active();
             app.allow_camera_mic = camera_switch.is_active();

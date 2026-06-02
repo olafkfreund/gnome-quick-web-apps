@@ -21,6 +21,10 @@ pub const APP_ID: &str = "io.github.olafkfreund.QuickWebApps";
 /// User-agent strings for the CEF runner.
 pub const DESKTOP_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 pub const MOBILE_UA: &str = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.76 Mobile Safari/537.36";
+/// Pretend to be Chrome on Windows — some services gate features by OS.
+pub const WINDOWS_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+/// Pretend to be Chrome on macOS.
+pub const MACOS_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
 /// Resolve the CEF subprocess helper binary: prefer one sitting next to the
 /// current executable, else trust `$PATH`.
