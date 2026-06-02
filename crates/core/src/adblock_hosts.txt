@@ -1,0 +1,89 @@
+# Curated ad / tracker / analytics domains blocked when an app enables adblock.
+# Matched by registrable suffix, so subdomains (e.g. pagead2.googlesyndication.com)
+# are covered. One domain per line; '#' starts a comment.
+
+# Google ads & analytics
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+google-analytics.com
+googletagmanager.com
+googletagservices.com
+adservice.google.com
+pagead2.googlesyndication.com
+partner.googleadservices.com
+2mdn.net
+app-measurement.com
+
+# Major ad networks / exchanges
+adnxs.com
+adsrvr.org
+rubiconproject.com
+pubmatic.com
+openx.net
+criteo.com
+criteo.net
+casalemedia.com
+contextweb.com
+sharethrough.com
+3lift.com
+districtm.io
+gumgum.com
+indexww.com
+smartadserver.com
+spotxchange.com
+spotx.tv
+teads.tv
+yieldmo.com
+adform.net
+bidswitch.net
+moatads.com
+amazon-adsystem.com
+ampproject.net
+taboola.com
+outbrain.com
+revcontent.com
+mgid.com
+
+# Analytics / tracking
+scorecardresearch.com
+quantserve.com
+quantcount.com
+hotjar.com
+mixpanel.com
+segment.com
+segment.io
+fullstory.com
+mouseflow.com
+crazyegg.com
+chartbeat.com
+chartbeat.net
+newrelic.com
+nr-data.net
+branch.io
+amplitude.com
+heap.io
+heapanalytics.com
+optimizely.com
+bugsnag.com
+sentry-cdn.com
+
+# Social trackers / pixels
+connect.facebook.net
+analytics.tiktok.com
+ads-twitter.com
+ads.linkedin.com
+bat.bing.com
+clarity.ms
+
+# Misc ads / consent / popups
+adcolony.com
+applovin.com
+inmobi.com
+mopub.com
+unityads.unity3d.com
+onesignal.com
+pushcrew.com
+zedo.com
+adroll.com
+sail-horizon.com

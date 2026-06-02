@@ -357,6 +357,7 @@ wrap_request_handler! {
         shared: Rc<Shared>,
         scope: Option<String>,
         mode: qwa_core::LinkScope,
+        adblock: bool,
     }
 
     impl RequestHandler {
@@ -423,6 +424,44 @@ wrap_request_handler! {
             }
             0
         }
+
+        fn resource_request_handler(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            _request: Option<&mut Request>,
+            _is_navigation: i32,
+            _is_download: i32,
+            _request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut i32>,
+        ) -> Option<ResourceRequestHandler> {
+            // Only attach the blocker when this app has adblock enabled.
+            self.adblock.then(OsrResourceRequestHandler::new)
+        }
+    }
+}
+
+wrap_resource_request_handler! {
+    struct OsrResourceRequestHandler {}
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            // NB: ReturnValue::default() is CANCEL, so allowed requests must
+            // explicitly CONTINUE.
+            if let Some(request) = request {
+                let url = CefString::from(&request.url()).to_string();
+                if qwa_core::adblock::is_blocked(&url) {
+                    return ReturnValue::CANCEL;
+                }
+            }
+            ReturnValue::CONTINUE
+        }
     }
 }
 
@@ -467,10 +506,15 @@ wrap_client! {
         }
 
         fn request_handler(&self) -> Option<RequestHandler> {
-            let (scope, mode) = crate::app::current_app()
-                .map(|a| (a.scope.clone(), a.link_scope()))
-                .unwrap_or((None, qwa_core::LinkScope::default()));
-            Some(OsrRequestHandler::new(self.shared.clone(), scope, mode))
+            let (scope, mode, adblock) = crate::app::current_app()
+                .map(|a| (a.scope.clone(), a.link_scope(), a.adblock))
+                .unwrap_or((None, qwa_core::LinkScope::default(), false));
+            Some(OsrRequestHandler::new(
+                self.shared.clone(),
+                scope,
+                mode,
+                adblock,
+            ))
         }
 
         fn load_handler(&self) -> Option<LoadHandler> {
