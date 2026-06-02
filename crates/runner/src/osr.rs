@@ -1977,7 +1977,7 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
 
     {
         let shared = shared.clone();
-        area.set_draw_func(move |_area, cr, w, h| {
+        area.set_draw_func(move |_area, cr, w, _h| {
             if let Some(frame) = shared.frame.borrow().as_ref() {
                 let stride = frame.width * 4;
                 if let Ok(surface) = gtk::cairo::ImageSurface::create_for_data(
@@ -1987,13 +1987,19 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
                     frame.height,
                     stride,
                 ) {
-                    // The buffer is at physical resolution (logical * scale);
-                    // scale it down to fill the logical drawing area so the
-                    // image stays crisp on HiDPI displays.
-                    let sx = w as f64 / frame.width.max(1) as f64;
-                    let sy = h as f64 / frame.height.max(1) as f64;
-                    cr.scale(sx, sy);
+                    // The buffer is at physical resolution (logical * scale).
+                    // Tell Cairo the surface is hi-res via its device scale so
+                    // it maps 1 buffer pixel to 1 device pixel (crisp), and use
+                    // the highest-quality filter for any residual resampling
+                    // (e.g. fractional scaling). NOTE: on compositors where the
+                    // GtkDrawingArea's Cairo backing is only integer-scaled
+                    // (some fractional-scaling Wayland setups), this still goes
+                    // through a downscale+compositor-upscale and can stay soft;
+                    // the full fix is a GSK GdkMemoryTexture paint path.
+                    let scale = frame.width as f64 / (w.max(1) as f64);
+                    surface.set_device_scale(scale as f64, scale as f64);
                     if cr.set_source_surface(&surface, 0.0, 0.0).is_ok() {
+                        cr.source().set_filter(gtk::cairo::Filter::Best);
                         let _ = cr.paint();
                     }
                 }
@@ -2187,6 +2193,43 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
                 if keyval == Key::_0 || keyval == Key::KP_0 {
                     set_zoom(&shared, 0.0);
                     return gtk::glib::Propagation::Stop;
+                }
+                // Clipboard / edit shortcuts: call the frame's own commands
+                // directly. Synthesized Ctrl+C/V key events don't reliably
+                // trigger Chromium's edit commands under OSR, and CEF's
+                // clipboard IS the system clipboard, so this restores
+                // copy/paste to/from the system and between web apps.
+                let shift = state.contains(gtk::gdk::ModifierType::SHIFT_MASK);
+                if let Some(frame) = shared
+                    .browser
+                    .borrow()
+                    .as_ref()
+                    .and_then(|b| b.main_frame())
+                {
+                    if keyval == Key::c || keyval == Key::C {
+                        frame.copy();
+                        return gtk::glib::Propagation::Stop;
+                    }
+                    if keyval == Key::v || keyval == Key::V {
+                        frame.paste();
+                        return gtk::glib::Propagation::Stop;
+                    }
+                    if keyval == Key::x || keyval == Key::X {
+                        frame.cut();
+                        return gtk::glib::Propagation::Stop;
+                    }
+                    if keyval == Key::a || keyval == Key::A {
+                        frame.select_all();
+                        return gtk::glib::Propagation::Stop;
+                    }
+                    if keyval == Key::z || keyval == Key::Z {
+                        if shift {
+                            frame.redo();
+                        } else {
+                            frame.undo();
+                        }
+                        return gtk::glib::Propagation::Stop;
+                    }
                 }
             }
             let vk = vk_from_keyval(keyval);
