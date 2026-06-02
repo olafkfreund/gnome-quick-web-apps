@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 
 use crate::paths;
 
@@ -76,6 +76,28 @@ pub fn generate_lettered(id: &str, name: &str) -> Result<PathBuf> {
 /// Read an icon file into raw bytes (for handing to the launcher portal).
 pub fn read_bytes(path: &Path) -> Result<Vec<u8>> {
     Ok(std::fs::read(path)?)
+}
+
+/// Copy a user-selected icon into the app-managed icons directory, returning
+/// the managed path. The app then owns the file it references, so deleting the
+/// web app only removes this copy — never the user's original (#37).
+///
+/// If `src` already lives under the managed icons directory it is returned
+/// unchanged (no copy). The original `src` is never modified or removed.
+pub fn import(id: &str, src: &Path) -> Result<PathBuf> {
+    let dir = paths::icons_dir();
+    if src.starts_with(&dir) {
+        return Ok(src.to_path_buf());
+    }
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| "png".to_string());
+    let dest = dir.join(format!("{id}.{ext}"));
+    std::fs::copy(src, &dest)
+        .with_context(|| format!("copying icon {} -> {}", src.display(), dest.display()))?;
+    Ok(dest)
 }
 
 // --- Online icon search (Iconify) ---------------------------------------

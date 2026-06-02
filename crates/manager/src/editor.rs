@@ -882,6 +882,21 @@ fn finalize_async(
             }
         }
 
+        // A custom icon picked from disk is referenced at its original path.
+        // Copy it into the app-managed icons dir so deleting the app never
+        // touches the user's original file (#37). No-op for icons we already
+        // own (downloaded / generated / Iconify).
+        if let Some(src) = app.icon_path.clone() {
+            match icon::import(&app.id, &src) {
+                Ok(managed) if managed != src => {
+                    app.icon_path = Some(managed);
+                    let _ = app.save();
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!("icon import failed for {}: {e}", app.id),
+            }
+        }
+
         let bytes = app
             .icon_path
             .as_ref()

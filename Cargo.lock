@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "gnome-quick-web-apps"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1239,7 +1239,7 @@ dependencies = [
 
 [[package]]
 name = "gnome-quick-web-apps-runner"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "cef",
@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "qwa-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "ashpd",

@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.9" date="2026-06-02">
+      <description>
+        <p>Fixes a data-loss bug: deleting a web app no longer removes a custom icon you picked from elsewhere on disk. Imported icons are now copied into the app's own icon folder, and deleting an app only ever removes files it owns.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-06-02">
       <description>
         <p>Web content is now crisp under fractional and HiDPI scaling (the render path is scale-aware, fixing blurry pages on compositors like Niri). Right-click inside a web app now shows a context menu (back/forward/reload and cut/copy/paste/select all), and the manager gains an About window so you can see which version you're running.</p>

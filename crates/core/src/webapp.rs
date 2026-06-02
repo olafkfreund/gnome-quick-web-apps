@@ -9,6 +9,13 @@ use crate::paths;
 pub type WindowWidth = u32;
 pub type WindowHeight = u32;
 
+/// True when `icon` lives under the app-managed `managed_dir` and is therefore
+/// safe for the app to delete. A user-picked icon from elsewhere on disk is
+/// not managed and must be left untouched (#37).
+fn icon_is_managed(icon: &std::path::Path, managed_dir: &std::path::Path) -> bool {
+    icon.starts_with(managed_dir)
+}
+
 /// `serde` default helper for fields that default to `true`.
 fn default_true() -> bool {
     true
@@ -279,7 +286,12 @@ impl WebApp {
     pub fn remove_local(&self) {
         let _ = std::fs::remove_file(self.config_path());
         if let Some(icon) = &self.icon_path {
-            let _ = std::fs::remove_file(icon);
+            // Only delete icons the app manages (under the icons dir). A custom
+            // icon the user picked from elsewhere on disk must never be removed
+            // — deleting the app would otherwise destroy the user's file (#37).
+            if icon_is_managed(icon, &paths::icons_dir()) {
+                let _ = std::fs::remove_file(icon);
+            }
         }
         // Only remove a private (per-app) profile; never a shared one that
         // other apps may still be using.
@@ -405,6 +417,24 @@ mod tests {
     #[test]
     fn slug_falls_back_when_url_unparseable() {
         assert_eq!(WebApp::slug_from_url("not a url", "zzzz"), "webapp-zzzz");
+    }
+
+    #[test]
+    fn only_managed_icons_are_deletable() {
+        use std::path::Path;
+        let managed = Path::new("/home/u/.local/share/io.github.olafkfreund.QuickWebApps/icons");
+        // An icon copied into the managed dir is ours to delete.
+        assert!(icon_is_managed(&managed.join("chatgpt.png"), managed));
+        // A user's original file picked from elsewhere on disk must be spared (#37).
+        assert!(!icon_is_managed(
+            Path::new("/home/u/Pictures/chatgpt.png"),
+            managed
+        ));
+        // A sibling dir that merely shares a name prefix is not "under" managed.
+        assert!(!icon_is_managed(
+            Path::new("/home/u/.local/share/io.github.olafkfreund.QuickWebApps/icons-backup/x.png"),
+            managed
+        ));
     }
 
     #[test]
