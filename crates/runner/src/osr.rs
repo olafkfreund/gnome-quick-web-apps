@@ -222,7 +222,25 @@ wrap_render_handler! {
             screen_info: Option<&mut ScreenInfo>,
         ) -> i32 {
             if let Some(info) = screen_info {
-                info.device_scale_factor = self.area.scale_factor().max(1) as f32;
+                // Prefer the GdkSurface's FRACTIONAL scale (GTK 4.12+) over the
+                // widget's INTEGER scale_factor(). On compositors with fractional
+                // scaling (e.g. Niri at 1.5x), scale_factor() reports 1 (it only
+                // ever returns whole numbers), so CEF would render at the wrong
+                // resolution and look blurry. gdk::Surface::scale() exposes the
+                // true fractional scale GTK itself uses to stay crisp, so feeding
+                // it to CEF makes off-screen rendering match. Fall back to the
+                // integer widget scale when the surface scale is unavailable or
+                // implausible — this keeps integer-scaled GNOME (which already
+                // works) unchanged.
+                let surface_scale = self
+                    .area
+                    .native()
+                    .and_then(|n| n.surface())
+                    .map(|s| s.scale());
+                info.device_scale_factor = match surface_scale {
+                    Some(s) if s.is_finite() && s >= 1.0 => s as f32,
+                    _ => self.area.scale_factor().max(1) as f32,
+                };
                 info.depth = 24;
                 info.depth_per_component = 8;
                 let (w, h) = (self.area.width().max(1), self.area.height().max(1));
@@ -692,6 +710,9 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
     let title = webapp.name.clone();
     let app_id = webapp.id.clone();
     let color_scheme = webapp.color_scheme;
+    // The login profile this app uses; surfaced as a colored dot + label in the
+    // header so the cue (e.g. Work vs Private) persists while using the app.
+    let profile = webapp.profile.clone();
     // When enabled, closing the window hides it (keeping the process + CEF
     // browser alive) so desktop notifications keep arriving.
     let background = webapp.run_in_background;
@@ -745,6 +766,42 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         header.pack_start(&back);
         header.pack_start(&forward);
         header.pack_start(&reload);
+
+        // Profile cue: a small colored dot + label so the user always knows
+        // which login profile (e.g. Work vs Private) this app is running under.
+        {
+            let profile_label = profile
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or("Private")
+                .to_string();
+            let (pr, pg, pb) = qwa_core::profile_color(profile.as_deref());
+            let dot = gtk::DrawingArea::builder()
+                .content_width(12)
+                .content_height(12)
+                .valign(gtk::Align::Center)
+                .build();
+            dot.set_draw_func(move |_area, cr, w, h| {
+                let d = (w.min(h) as f64) - 2.0;
+                let radius = (d / 2.0).max(0.0);
+                cr.arc(
+                    w as f64 / 2.0,
+                    h as f64 / 2.0,
+                    radius,
+                    0.0,
+                    std::f64::consts::TAU,
+                );
+                cr.set_source_rgb(pr as f64 / 255.0, pg as f64 / 255.0, pb as f64 / 255.0);
+                let _ = cr.fill();
+            });
+            let label = gtk::Label::new(Some(&profile_label));
+            label.add_css_class("dim-label");
+            let profile_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            profile_box.set_valign(gtk::Align::Center);
+            profile_box.append(&dot);
+            profile_box.append(&label);
+            header.pack_end(&profile_box);
+        }
 
         {
             let shared = shared.clone();
