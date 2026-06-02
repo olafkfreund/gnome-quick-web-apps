@@ -246,12 +246,6 @@ pub fn all() -> Vec<Template> {
             Network,
             "simple-icons:icloud",
         ),
-        t(
-            "Apple Music",
-            "https://music.apple.com",
-            Audio,
-            "simple-icons:applemusic",
-        ),
         // Development
         t(
             "GitHub",
@@ -266,13 +260,12 @@ pub fn all() -> Vec<Template> {
             Development,
             "logos:stackoverflow-icon",
         ),
-        // Media
-        t(
-            "Spotify",
-            "https://open.spotify.com",
-            AudioVideo,
-            "logos:spotify-icon",
-        ),
+        // Media. NOTE: DRM streaming services (Netflix, Spotify, Apple Music,
+        // Disney+, Prime Video, Max, Tidal, Deezer) are intentionally NOT
+        // listed — they require a Verified-Media-Path-signed Widevine CDM that
+        // Google grants only to certified browser vendors, which an embeddable
+        // engine (CEF) cannot provide, so they cannot play here. See the README
+        // "DRM streaming" section. Only non-DRM media services are offered.
         t(
             "YouTube",
             "https://youtube.com",
@@ -286,13 +279,6 @@ pub fn all() -> Vec<Template> {
             "simple-icons:youtubemusic",
         ),
         t(
-            "Tidal",
-            "https://listen.tidal.com",
-            Audio,
-            "simple-icons:tidal",
-        ),
-        t("Deezer", "https://deezer.com", Audio, "simple-icons:deezer"),
-        t(
             "SoundCloud",
             "https://soundcloud.com",
             Audio,
@@ -304,32 +290,7 @@ pub fn all() -> Vec<Template> {
             Audio,
             "simple-icons:bandcamp",
         ),
-        t(
-            "Netflix",
-            "https://netflix.com",
-            Video,
-            "logos:netflix-icon",
-        ),
-        t(
-            "Disney+",
-            "https://disneyplus.com",
-            Video,
-            "simple-icons:disneyplus",
-        ),
-        t(
-            "Prime Video",
-            "https://primevideo.com",
-            Video,
-            "simple-icons:primevideo",
-        ),
-        t("Max", "https://play.max.com", Video, "simple-icons:hbo"),
         t("Twitch", "https://twitch.tv", Video, "logos:twitch"),
-        t(
-            "Plex",
-            "https://app.plex.tv",
-            AudioVideo,
-            "simple-icons:plex",
-        ),
         // AI
         t(
             "ChatGPT",

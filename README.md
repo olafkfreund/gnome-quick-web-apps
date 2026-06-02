@@ -94,14 +94,30 @@ Rendering uses **CEF (Chromium Embedded Framework)** for broad site
 compatibility (full codec set, Chrome-only sites), the same engine choice as
 upstream's v3.
 
-> **DRM streaming (Netflix, Apple Music, Spotify Web) — known issue, work in
-> progress.** These need the proprietary Widevine CDM, which can't be bundled.
-> Quick Web Apps now reuses the CDM from a host Chromium-family browser (Chrome,
-> Chromium, Edge, Brave, Vivaldi) when one is installed, and the CDM loads
-> correctly — but some services still report a protected-content error
-> (e.g. Netflix `M7701-1003`). We're actively working on fully enabling DRM
-> playback; follow [#36](https://github.com/olafkfreund/gnome-quick-web-apps/issues/36)
-> for progress. Non-DRM video and the full codec set work today.
+### DRM streaming is not supported
+
+**Netflix, Spotify, Apple Music, Disney+, Prime Video, Max, Tidal and Deezer
+will not play, and are intentionally left out of the templates.**
+
+These services require the Widevine CDM with a **Verified Media Path (VMP)
+signature** — a cryptographic certification Google grants only to a handful of
+major browser vendors (Chrome, Firefox, Edge). An embeddable engine like CEF
+cannot obtain it, so even though the Widevine module loads, it refuses to
+*authorize* playback (e.g. Netflix `M7701-1003`). We verified this is a
+platform-wide limitation, not a bug in this app: the GNOME-native WebKitGTK
+engine (GNOME Web) hits the exact same wall on Linux. The only engines that pass
+VMP — full Firefox/Chrome, or a castLabs Electron fork — would mean abandoning
+the native GTK/libadwaita app, which isn't a trade we're willing to make.
+
+**Everything that doesn't use DRM works** — non-DRM video (YouTube, Twitch),
+audio (YouTube Music, SoundCloud, Bandcamp), and every non-streaming web app.
+If you specifically need a Netflix/Spotify desktop app, a Firefox-based tool
+like [PWAsForFirefox](https://pwasforfirefox.filips.si/) is the right fit.
+
+We're keeping the door open: if a native engine ever ships VMP-capable Widevine,
+or we add optional Firefox-PWA delegation for DRM apps, we'll revisit. Progress
+(and the full investigation) lives in
+[#36](https://github.com/olafkfreund/gnome-quick-web-apps/issues/36).
 
 ## Features
 
@@ -246,11 +262,8 @@ simple `[a-z0-9-]` slug. Every editor option is exposed (`profile`, `adblock`,
 surfaced can be set verbatim via `extraConfig`. You can mix declarative apps and
 GUI-created ones freely — they live side by side.
 
-> **DRM on NixOS (known issue, in progress):** the runner reuses the Widevine
-> module from a host Chromium-family browser (e.g. `pkgs.chromium` or
-> `pkgs.google-chrome`) — no sandbox, so no extra permissions needed. The CDM
-> loads, but full DRM playback for some services (Netflix, Apple Music) is still
-> being worked on — see [#36](https://github.com/olafkfreund/gnome-quick-web-apps/issues/36).
+> **DRM streaming** (Netflix, Spotify, …) is not supported on any platform — see
+> the [DRM streaming](#drm-streaming-is-not-supported) note above for why.
 
 ### Everyone else — Flatpak
 

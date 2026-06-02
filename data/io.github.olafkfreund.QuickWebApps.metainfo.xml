@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.14" date="2026-06-03">
+      <description>
+        <p>Removes the DRM-only streaming services (Netflix, Spotify, Apple Music, Disney+, Prime Video, Max, Tidal, Deezer) from the one-click templates: they require a Google-certified Widevine that no embeddable engine can provide, so they cannot play here. Everything that does not depend on DRM keeps working — YouTube, Twitch, SoundCloud and every non-streaming web app. The README explains the limitation and the investigation behind it.</p>
+      </description>
+    </release>
     <release version="0.1.13" date="2026-06-02">
       <description>
         <p>Fixes a crash on startup introduced in 0.1.12, where every web app could segfault when launched. The experimental DRM content-setting call is not supported by the embedded engine and has been disabled; DRM playback (Netflix, Apple Music) remains a known limitation being worked on, while the rest of the app works normally again.</p>
