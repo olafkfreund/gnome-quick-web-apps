@@ -23,6 +23,13 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .build();
     header.pack_start(&templates_button);
 
+    // About / version, so users can see which version they're running.
+    let about_button = gtk::Button::builder()
+        .icon_name("help-about-symbolic")
+        .tooltip_text("About")
+        .build();
+    header.pack_end(&about_button);
+
     let list_container = gtk::Box::new(gtk::Orientation::Vertical, 0);
     list_container.set_vexpand(true);
 
@@ -39,6 +46,26 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         .build();
 
     populate(&list_container, &window);
+
+    about_button.connect_clicked(glib::clone!(
+        #[weak]
+        window,
+        move |_| {
+            adw::AboutWindow::builder()
+                .transient_for(&window)
+                .modal(true)
+                .application_name("GNOME Quick Web Apps")
+                .application_icon(qwa_core::APP_ID)
+                .version(env!("CARGO_PKG_VERSION"))
+                .developer_name("olafkfreund")
+                .license_type(gtk::License::Gpl30Only)
+                .website("https://github.com/olafkfreund/gnome-quick-web-apps")
+                .issue_url("https://github.com/olafkfreund/gnome-quick-web-apps/issues")
+                .comments("Turn any website into a first-class native GNOME app.")
+                .build()
+                .present();
+        }
+    ));
 
     new_button.connect_clicked(glib::clone!(
         #[weak]
