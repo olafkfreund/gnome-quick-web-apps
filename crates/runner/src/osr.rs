@@ -567,6 +567,28 @@ wrap_permission_handler! {
             }
             1 // handled
         }
+
+        // getUserMedia (camera/microphone) goes through a SEPARATE CEF callback
+        // from the prompt above; if we don't handle it, CEF denies media access
+        // by default — which is why video calls (Teams/Zoom/Meet) had no camera.
+        // Grant the requested capture when the app's policy allows it. (#22)
+        fn on_request_media_access_permission(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            _requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
+            callback: Option<&mut MediaAccessCallback>,
+        ) -> i32 {
+            let allow = crate::app::current_app()
+                .map(|a| a.allow_camera_mic)
+                .unwrap_or(true);
+            if let Some(callback) = callback {
+                // Grant exactly what was requested when allowed, else nothing.
+                callback.cont(if allow { requested_permissions } else { 0 });
+            }
+            1 // handled
+        }
     }
 }
 
