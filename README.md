@@ -190,18 +190,87 @@ In a NixOS or Home Manager config:
 The flake pins the matching CEF build and patches it for NixOS, so no manual
 setup is needed.
 
-### Everyone else — Flatpak
+### Declarative web apps (the Nix way)
 
-```sh
-flatpak install -y flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
-  org.freedesktop.Sdk.Extension.rust-stable//25.08
-flatpak-builder --user --install --force-clean build \
-  build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
+Beyond installing the package, the flake ships a **Home Manager module** so you
+can define your web apps declaratively — in your config, reproducible across
+machines — instead of (or alongside) the GUI manager. Each declared app is
+written as the same `apps/<id>.json` the runner reads, plus a matching
+`.desktop` launcher, with no activation scripts or portal calls.
+
+```nix
+{
+  inputs.quick-web-apps.url = "github:olafkfreund/gnome-quick-web-apps";
+
+  # Import the module in your Home Manager configuration:
+  imports = [ inputs.quick-web-apps.homeManagerModules.default ];
+
+  programs.quick-web-apps = {
+    enable = true;                       # also installs the package
+
+    apps.youtube-music = {
+      name = "YouTube Music";
+      url = "https://music.youtube.com";
+      category = "Audio";
+      showBadge = false;
+    };
+
+    apps.teams = {
+      name = "Microsoft Teams";
+      url = "https://teams.microsoft.com";
+      category = "Network";
+      runInBackground = true;            # keep alive for notifications
+      autostart = true;                  # start on login
+      icon = ./icons/teams.png;          # optional; falls back to the app icon
+    };
+
+    apps.gmail = {
+      name = "Gmail";
+      url = "https://mail.google.com";
+      category = "Network";
+      profile = "google";                # share a login with other Google apps
+      linkScope = "exact_host";          # open off-site links in the browser
+      showBadge = true;
+    };
+  };
+}
 ```
 
-The offline cargo sources (`cargo-sources.json`) are committed, and CI builds an
-installable `.flatpak` bundle on every push — grab it from the latest run's
-artifacts.
+The attribute key (`youtube-music`, `teams`, …) is the stable app id — use a
+simple `[a-z0-9-]` slug. Every editor option is exposed (`profile`, `adblock`,
+`colorScheme`, `customCss`, `userAgent`, `mobile`, `allowCameraMic`,
+`allowLocation`, `handlers`, window `width`/`height`, …); anything not yet
+surfaced can be set verbatim via `extraConfig`. You can mix declarative apps and
+GUI-created ones freely — they live side by side.
+
+> **DRM (Netflix, Apple Music, Spotify Web) on NixOS:** works the same as
+> elsewhere — install any Chromium-family browser (e.g. `pkgs.chromium` or
+> `pkgs.google-chrome`) and the runner reuses its Widevine module. No sandbox,
+> so no extra permissions are needed (unlike Flatpak).
+
+### Everyone else — Flatpak
+
+The easiest path is the prebuilt bundle: grab `gnome-quick-web-apps-x86_64.flatpak`
+from the [latest release](https://github.com/olafkfreund/gnome-quick-web-apps/releases)
+and `flatpak install --user gnome-quick-web-apps-x86_64.flatpak`.
+
+To build it yourself, let `flatpak-builder` pull every dependency (the GNOME 50
+runtime/SDK and the `rust-stable` SDK extension) from Flathub automatically —
+no manual `flatpak install` step:
+
+```sh
+flatpak remote-add --user --if-not-exists flathub \
+  https://flathub.org/repo/flathub.flatpakrepo
+flatpak-builder --user --install --force-clean --install-deps-from=flathub \
+  build build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
+```
+
+The `--install-deps-from=flathub` flag is what installs the runtime/SDK for you.
+The `rust-stable` extension version is **not** pinned in the manifest — flatpak
+resolves it to the branch matching the GNOME 50 SDK, so it never goes stale (an
+earlier README hint pinned `//25.08`, which you should ignore). The offline
+cargo sources (`cargo-sources.json`) are committed, and CI builds an installable
+`.flatpak` bundle on every push.
 
 ## Building from source (dev)
 
