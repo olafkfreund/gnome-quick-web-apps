@@ -94,11 +94,14 @@ Rendering uses **CEF (Chromium Embedded Framework)** for broad site
 compatibility (full codec set, Chrome-only sites), the same engine choice as
 upstream's v3.
 
-> **DRM streaming (Apple Music, Netflix, Spotify Web):** these need the
-> proprietary Widevine CDM, which can't be bundled. If you have a
-> Chromium-family browser installed (Chrome, Chromium, Edge, Brave, Vivaldi),
-> Quick Web Apps reuses its CDM automatically; otherwise DRM playback is
-> unavailable.
+> **DRM streaming (Netflix, Apple Music, Spotify Web) — known issue, work in
+> progress.** These need the proprietary Widevine CDM, which can't be bundled.
+> Quick Web Apps now reuses the CDM from a host Chromium-family browser (Chrome,
+> Chromium, Edge, Brave, Vivaldi) when one is installed, and the CDM loads
+> correctly — but some services still report a protected-content error
+> (e.g. Netflix `M7701-1003`). We're actively working on fully enabling DRM
+> playback; follow [#36](https://github.com/olafkfreund/gnome-quick-web-apps/issues/36)
+> for progress. Non-DRM video and the full codec set work today.
 
 ## Features
 
@@ -243,10 +246,11 @@ simple `[a-z0-9-]` slug. Every editor option is exposed (`profile`, `adblock`,
 surfaced can be set verbatim via `extraConfig`. You can mix declarative apps and
 GUI-created ones freely — they live side by side.
 
-> **DRM (Netflix, Apple Music, Spotify Web) on NixOS:** works the same as
-> elsewhere — install any Chromium-family browser (e.g. `pkgs.chromium` or
-> `pkgs.google-chrome`) and the runner reuses its Widevine module. No sandbox,
-> so no extra permissions are needed (unlike Flatpak).
+> **DRM on NixOS (known issue, in progress):** the runner reuses the Widevine
+> module from a host Chromium-family browser (e.g. `pkgs.chromium` or
+> `pkgs.google-chrome`) — no sandbox, so no extra permissions needed. The CDM
+> loads, but full DRM playback for some services (Netflix, Apple Music) is still
+> being worked on — see [#36](https://github.com/olafkfreund/gnome-quick-web-apps/issues/36).
 
 ### Everyone else — Flatpak
 

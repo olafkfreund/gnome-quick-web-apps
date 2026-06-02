@@ -110,6 +110,13 @@
   </header>
 
   <section class="wrap">
+    <div style="background: var(--card); border: 1px solid var(--line); border-left: 3px solid #e87d0d; border-radius: var(--radius); padding: 16px 20px; margin-bottom: 8px;">
+      <strong>Known issue &mdash; DRM streaming.</strong>
+      <span style="color: var(--muted)">Netflix, Apple Music and other DRM services may not play yet. Quick Web Apps reuses the Widevine module from a host browser and it loads, but full protected-content playback is still being worked on. Track progress at <a href="https://github.com/olafkfreund/gnome-quick-web-apps/issues/36">issue #36</a>. Everything else &mdash; non-DRM video, the full codec set, Chrome-only sites &mdash; works today.</span>
+    </div>
+  </section>
+
+  <section class="wrap">
     <span class="eyebrow">Features</span>
     <h2>Everything a desktop app should be</h2>
     <div class="grid">
@@ -125,7 +132,7 @@
       <div class="card"><h3>Permission control</h3><p>Camera, microphone and location are blocked unless you allow them per app. Downloads land in your Downloads folder.</p></div>
       <div class="card"><h3>Crisp on HiDPI</h3><p>Renders at the display's true fractional scale, so it stays sharp on scaled and fractional-scaling setups.</p></div>
       <div class="card"><h3>Automatic icons</h3><p>Crisp logos from the manifest, an online icon search, or your own file. Always a clean icon.</p></div>
-      <div class="card"><h3>Real site compatibility</h3><p>Chromium (CEF) rendering means Chrome-only sites and the full codec set just work. DRM streaming reuses a host browser's Widevine CDM when one is installed.</p></div>
+      <div class="card"><h3>Real site compatibility</h3><p>Chromium (CEF) rendering means Chrome-only sites and the full codec set just work. DRM streaming (Netflix, Apple Music) is a known work in progress &mdash; the Widevine module is reused from a host browser and loads, but full playback is still being enabled.</p></div>
     </div>
   </section>
 
