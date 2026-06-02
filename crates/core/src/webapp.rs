@@ -148,6 +148,21 @@ impl UrlHandler {
 /// leaves the scope is handed to the system browser instead of staying in
 /// the app window (true PWA behaviour). It is auto-filled from the site
 /// manifest when available.
+///
+/// ## Storage-schema migration policy
+///
+/// App configs are persisted as JSON on disk and outlive the binary that
+/// wrote them. To guarantee that older files keep deserializing as this
+/// struct evolves:
+///
+/// - **Every new field MUST be `#[serde(default)]`** and have a sensible
+///   `Default`, so files written before the field existed still load.
+/// - **Never remove or rename a serialized field** without a migration step;
+///   doing so silently drops (or fails to read) existing user data.
+///
+/// The `loads_v0_1_0_era_json` test pins this contract: a JSON file carrying
+/// only the original fields must still deserialize, with every newer field
+/// falling back to its default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebApp {
     /// Stable slug, e.g. `discord-com-a1b2`. Used for id, profile, WM class.
@@ -394,6 +409,46 @@ mod tests {
         assert_eq!(back.category, app.category);
         assert_eq!(back.mobile, app.mobile);
         assert_eq!(back.adblock, app.adblock);
+    }
+
+    #[test]
+    fn loads_v0_1_0_era_json() {
+        // A config written before any of the newer fields existed: only the
+        // original schema (id, name, url, scope, category, icon_path,
+        // theme_color, user_agent). Every later field must default in.
+        let json = r##"{
+            "id": "discord-com-abcd",
+            "name": "Discord",
+            "url": "https://discord.com/app",
+            "scope": "https://discord.com/",
+            "category": "Network",
+            "icon_path": null,
+            "theme_color": "#5865f2",
+            "user_agent": null
+        }"##;
+
+        let app = WebApp::from_json(json).expect("v0.1.0-era JSON must still load");
+
+        // Original fields parsed as written.
+        assert_eq!(app.id, "discord-com-abcd");
+        assert_eq!(app.name, "Discord");
+        assert_eq!(app.url, "https://discord.com/app");
+        assert_eq!(app.scope.as_deref(), Some("https://discord.com/"));
+        assert_eq!(app.category, Category::Network);
+        assert_eq!(app.theme_color.as_deref(), Some("#5865f2"));
+
+        // Every field added after v0.1.0 falls back to its default.
+        assert_eq!(app.profile, None);
+        assert!(!app.mobile);
+        assert!(!app.external_links_in_browser);
+        assert_eq!(app.link_scope, None);
+        assert!(app.handlers.is_empty());
+        assert!(!app.adblock);
+        assert_eq!(app.color_scheme, ColorScheme::System);
+
+        let default_window = WindowSize::default();
+        assert_eq!(app.window.0, default_window.0);
+        assert_eq!(app.window.1, default_window.1);
     }
 
     #[test]
