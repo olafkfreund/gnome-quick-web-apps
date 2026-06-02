@@ -19,11 +19,58 @@ use crate::{webapp::WebApp, APP_ID};
 
 const RUNNER_BIN: &str = "gnome-quick-web-apps-runner";
 
+/// Search `$PATH` for an installed runner binary, returning its absolute
+/// path if `<entry>/gnome-quick-web-apps-runner` exists and is a file.
+fn runner_on_path() -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(RUNNER_BIN);
+        if candidate.is_file() {
+            return Some(candidate.display().to_string());
+        }
+    }
+    None
+}
+
 /// Locate the runner binary: prefer one sitting next to the current
-/// executable (dev builds / Flatpak), else trust `$PATH`.
+/// executable (installed builds / Flatpak), else trust `$PATH`.
+///
+/// Special-case dev builds: when `current_exe()` lives under
+/// `target/debug` or `target/release`, the sibling runner is a dev binary
+/// that only works inside `nix develop`. Baking that path into an installed
+/// `.desktop` launcher means launching from the GNOME app grid fails. So for
+/// dev builds we first try to find an INSTALLED runner on `$PATH`, and only
+/// fall back to the dev sibling (with a loud warning) if none is found.
 fn runner_path() -> String {
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
+        let exe_str = exe.display().to_string();
+        let is_dev_build =
+            exe_str.contains("/target/debug/") || exe_str.contains("/target/release/");
+
+        if is_dev_build {
+            // Prefer an installed runner from `$PATH` so the generated
+            // launcher works outside `nix develop`.
+            if let Some(installed) = runner_on_path() {
+                return installed;
+            }
+            // No installed runner: fall back to the dev sibling, but warn
+            // that this path only works inside the dev shell.
+            if let Some(dir) = exe.parent() {
+                let sibling = dir.join(RUNNER_BIN);
+                if sibling.exists() {
+                    tracing::warn!(
+                        runner = %sibling.display(),
+                        "using a DEV-build runner path in the .desktop launcher; \
+                         launching from the GNOME app grid will fail because this \
+                         path only works inside `nix develop`. Install the package \
+                         (Nix flake or Flatpak) for a working app-grid launcher.",
+                    );
+                    return sibling.display().to_string();
+                }
+            }
+        } else if let Some(dir) = exe.parent() {
+            // Installed binary under a real prefix: keep the original
+            // sibling-path behavior exactly.
             let sibling = dir.join(RUNNER_BIN);
             if sibling.exists() {
                 return sibling.display().to_string();
