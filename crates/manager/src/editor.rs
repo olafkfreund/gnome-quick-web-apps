@@ -192,6 +192,21 @@ pub fn present<F: Fn() + 'static>(
                 .unwrap_or(false),
         )
         .build();
+
+    // Permission policy: sensitive capabilities are denied unless allowed here.
+    let camera_switch = adw::SwitchRow::builder()
+        .title("Allow camera & microphone")
+        .active(
+            existing
+                .as_ref()
+                .map(|a| a.allow_camera_mic)
+                .unwrap_or(false),
+        )
+        .build();
+    let location_switch = adw::SwitchRow::builder()
+        .title("Allow location")
+        .active(existing.as_ref().map(|a| a.allow_location).unwrap_or(false))
+        .build();
     // Per-app custom CSS, injected into every page after load. EntryRow is
     // single-line, so use a TextView inside an expander for multi-line input.
     let css_view = gtk::TextView::builder()
@@ -244,6 +259,8 @@ pub fn present<F: Fn() + 'static>(
     group.add(&appearance_row);
     group.add(&adblock_switch);
     group.add(&background_switch);
+    group.add(&camera_switch);
+    group.add(&location_switch);
     group.add(&css_expander);
 
     let page = adw::PreferencesPage::new();
@@ -433,6 +450,10 @@ pub fn present<F: Fn() + 'static>(
         #[weak]
         background_switch,
         #[weak]
+        camera_switch,
+        #[weak]
+        location_switch,
+        #[weak]
         css_view,
         #[strong]
         role_switches,
@@ -484,6 +505,8 @@ pub fn present<F: Fn() + 'static>(
             app.color_scheme = color_scheme_from_index(appearance_row.selected());
             app.adblock = adblock_switch.is_active();
             app.run_in_background = background_switch.is_active();
+            app.allow_camera_mic = camera_switch.is_active();
+            app.allow_location = location_switch.is_active();
             app.custom_css = {
                 let buffer = css_view.buffer();
                 let t = buffer

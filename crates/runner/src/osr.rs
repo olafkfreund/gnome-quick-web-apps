@@ -532,14 +532,38 @@ wrap_permission_handler! {
             _browser: Option<&mut Browser>,
             _prompt_id: u64,
             _requesting_origin: Option<&CefString>,
-            _requested_permissions: u32,
+            requested_permissions: u32,
             callback: Option<&mut PermissionPromptCallback>,
         ) -> i32 {
-            // Grant permission prompts (desktop notifications, etc.) — these are
-            // the user's own installed web apps. OSR has no prompt UI, so
-            // without this the request would simply be denied.
+            // OSR has no native permission popup, so we decide from the app's
+            // per-app policy instead of prompting. Low-risk capabilities
+            // (notifications — our whole point — clipboard, etc.) are granted;
+            // the sensitive ones (camera/mic, geolocation) are granted only when
+            // the user opted in via the editor, else denied. Persisted in the
+            // app config. (#22)
+            let cam_mic = PermissionRequestTypes::CAMERA_STREAM.get_raw()
+                | PermissionRequestTypes::MIC_STREAM.get_raw()
+                | PermissionRequestTypes::CAMERA_PAN_TILT_ZOOM.get_raw();
+            let geo = PermissionRequestTypes::GEOLOCATION.get_raw();
+
+            let app = crate::app::current_app();
+            let allow_cam_mic = app.as_ref().map(|a| a.allow_camera_mic).unwrap_or(false);
+            let allow_location = app.as_ref().map(|a| a.allow_location).unwrap_or(false);
+
+            let wants_cam_mic = requested_permissions & cam_mic != 0;
+            let wants_geo = requested_permissions & geo != 0;
+            let deny = (wants_cam_mic && !allow_cam_mic) || (wants_geo && !allow_location);
+
             if let Some(callback) = callback {
-                callback.cont(PermissionRequestResult::ACCEPT);
+                let result = if deny {
+                    tracing::info!(
+                        "denied permission request per policy (bits={requested_permissions:#x})"
+                    );
+                    PermissionRequestResult::DENY
+                } else {
+                    PermissionRequestResult::ACCEPT
+                };
+                callback.cont(result);
             }
             1 // handled
         }

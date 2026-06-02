@@ -213,6 +213,13 @@ pub struct WebApp {
     /// Per-app user CSS injected into every page after load. `None` = no CSS.
     #[serde(default)]
     pub custom_css: Option<String>,
+    /// Permission policy: allow the site to use the camera/microphone. Default
+    /// false — the request is denied unless the user opts in here.
+    #[serde(default)]
+    pub allow_camera_mic: bool,
+    /// Permission policy: allow the site to access geolocation. Default false.
+    #[serde(default)]
+    pub allow_location: bool,
 }
 
 impl WebApp {
@@ -244,6 +251,8 @@ impl WebApp {
             color_scheme: ColorScheme::System,
             run_in_background: false,
             custom_css: None,
+            allow_camera_mic: false,
+            allow_location: false,
         }
     }
 
