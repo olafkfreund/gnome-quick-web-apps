@@ -92,7 +92,7 @@ the **XDG DynamicLauncher portal** for sandbox-safe `.desktop` install, and
 - **Phase 1 — Core + Manager (parity):** data model, storage, launcher install, GTK4 manager listing/CRUD.
 - **Phase 2 — Differentiators:** PWA manifest autofill, auto-icon download, scope confinement, per-app UA, adblock.
 - **Phase 3 — Native shell:** CEF off-screen rendering inside a libadwaita window with a real header bar, per-app zoom/CSS.
-- **Phase 4 — Polish:** GNOME Shell search provider, import from COSMIC / Linux Mint webapp-manager, Flathub release.
+- **Phase 4 — Polish:** GNOME Shell search provider, import from COSMIC / Linux Mint webapp-manager, prebuilt release bundles.
 
 See the [Epic and child issues](https://github.com/olafkfreund/gnome-quick-web-apps/issues) for live status.
 
