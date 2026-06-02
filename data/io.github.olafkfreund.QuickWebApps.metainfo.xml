@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.6" date="2026-06-02">
+      <description>
+        <p>Apps that share a login profile can now run at the same time, in one process with one shared session. New "Identify as" option spoofs the browser OS (Windows/macOS/Mobile/Custom) for services that require it. Clearer messaging when a profile is already in use.</p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-06-02">
       <description>
         <p>Camera and microphone now work for video calls (Teams, Zoom, Meet) and are allowed by default. Adds a portable AppImage build for any distribution. Fixes blank toggle labels and makes the link-handling options readable.</p>

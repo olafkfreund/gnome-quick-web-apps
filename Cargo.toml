@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/manager", "crates/runner"]
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 # Matches the rustc in the Flatpak GNOME SDK (rust-stable extension), so the
 # MSRV-aware resolver keeps dependencies buildable there.
