@@ -724,16 +724,26 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
     let settings = crate::app::build_settings(&webapp);
 
     let mut app = OsrApp::new();
-    assert_eq!(
-        initialize(
-            Some(main_args),
-            Some(&settings),
-            Some(&mut app),
-            sandbox_info
-        ),
-        1,
-        "CEF initialize failed"
-    );
+    if initialize(
+        Some(main_args),
+        Some(&settings),
+        Some(&mut app),
+        sandbox_info,
+    ) != 1
+    {
+        // The most common cause is the profile already being in use: CEF allows
+        // only one process per profile data dir, so another web app SHARING this
+        // profile (or a leftover instance of this one) blocks startup. Exit
+        // cleanly with an actionable message instead of panicking.
+        tracing::error!(
+            "could not start '{}': its login profile ('{}') is already in use by \
+             another running web app that shares it (or a leftover instance). \
+             Close that app and try again.",
+            webapp.name,
+            webapp.profile_key()
+        );
+        return;
+    }
 
     let shared = Rc::new(Shared::default());
 
