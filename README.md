@@ -126,8 +126,8 @@ setup is needed.
 ### Everyone else — Flatpak
 
 ```sh
-flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
-  org.freedesktop.Sdk.Extension.rust-stable//24.08
+flatpak install -y flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+  org.freedesktop.Sdk.Extension.rust-stable//25.08
 flatpak-builder --user --install --force-clean build \
   build-aux/flatpak/io.github.olafkfreund.QuickWebApps.yml
 ```

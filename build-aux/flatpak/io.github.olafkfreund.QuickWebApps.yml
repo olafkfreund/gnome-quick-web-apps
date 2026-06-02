@@ -1,8 +1,8 @@
 # Flatpak manifest for GNOME Quick Web Apps (manager + CEF runner).
 #
 # Prerequisites:
-#   flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
-#     org.freedesktop.Sdk.Extension.rust-stable//24.08
+#   flatpak install -y flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+#     org.freedesktop.Sdk.Extension.rust-stable//25.08
 #
 # Generate the offline cargo sources once (and re-run when Cargo.lock changes):
 #   python3 ./build-aux/flatpak/flatpak-cargo-generator.py Cargo.lock \
@@ -15,7 +15,7 @@
 
 app-id: io.github.olafkfreund.QuickWebApps
 runtime: org.gnome.Platform
-runtime-version: "47"
+runtime-version: "50"
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
