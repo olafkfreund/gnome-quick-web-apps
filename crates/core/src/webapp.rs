@@ -210,6 +210,9 @@ pub struct WebApp {
     /// window instead of quitting, so background notifications keep arriving.
     #[serde(default)]
     pub run_in_background: bool,
+    /// Per-app user CSS injected into every page after load. `None` = no CSS.
+    #[serde(default)]
+    pub custom_css: Option<String>,
 }
 
 impl WebApp {
@@ -240,6 +243,7 @@ impl WebApp {
             adblock: false,
             color_scheme: ColorScheme::System,
             run_in_background: false,
+            custom_css: None,
         }
     }
 

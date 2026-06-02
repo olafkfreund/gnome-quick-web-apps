@@ -192,6 +192,27 @@ pub fn present<F: Fn() + 'static>(
                 .unwrap_or(false),
         )
         .build();
+    // Per-app custom CSS, injected into every page after load. EntryRow is
+    // single-line, so use a TextView inside an expander for multi-line input.
+    let css_view = gtk::TextView::builder()
+        .monospace(true)
+        .top_margin(6)
+        .bottom_margin(6)
+        .left_margin(6)
+        .right_margin(6)
+        .build();
+    css_view.buffer().set_text(
+        &existing
+            .as_ref()
+            .and_then(|a| a.custom_css.clone())
+            .unwrap_or_default(),
+    );
+    let css_scroller = gtk::ScrolledWindow::builder()
+        .min_content_height(120)
+        .child(&css_view)
+        .build();
+    let css_expander = adw::ExpanderRow::builder().title("Custom CSS").build();
+    css_expander.add_row(&css_scroller);
 
     // "Set as default for…" toggles, rebuilt from the URL (email for web mail,
     // calendar for web calendars, nothing otherwise).
@@ -223,6 +244,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&appearance_row);
     group.add(&adblock_switch);
     group.add(&background_switch);
+    group.add(&css_expander);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
@@ -410,6 +432,8 @@ pub fn present<F: Fn() + 'static>(
         adblock_switch,
         #[weak]
         background_switch,
+        #[weak]
+        css_view,
         #[strong]
         role_switches,
         #[strong]
@@ -460,6 +484,13 @@ pub fn present<F: Fn() + 'static>(
             app.color_scheme = color_scheme_from_index(appearance_row.selected());
             app.adblock = adblock_switch.is_active();
             app.run_in_background = background_switch.is_active();
+            app.custom_css = {
+                let buffer = css_view.buffer();
+                let t = buffer
+                    .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                    .to_string();
+                (!t.trim().is_empty()).then_some(t)
+            };
             app.handlers = role_switches
                 .borrow()
                 .iter()

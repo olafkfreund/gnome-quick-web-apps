@@ -145,6 +145,25 @@ fn map_button(gdk_button: u32) -> MouseButtonType {
     }
 }
 
+/// Encode `s` as a double-quoted JavaScript string literal, escaping the
+/// characters that would otherwise break out of the literal (backslash, double
+/// quote, newline, carriage return). Used to inject user CSS safely.
+fn js_string_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 wrap_app! {
     pub struct OsrApp;
     impl App {
@@ -332,10 +351,12 @@ wrap_load_handler! {
             self.back.set_sensitive(can_go_back != 0);
             self.forward.set_sensitive(can_go_forward != 0);
 
+            let mut browser = browser;
+
             // Record the settled home once the first load completes, after any
             // initial redirect chain (gmail.com -> mail.google.com).
             if is_loading == 0 && self.shared.home.borrow().is_none() {
-                if let Some(url) = crate::app::current_page_url(browser) {
+                if let Some(url) = crate::app::current_page_url(browser.as_deref_mut()) {
                     if url.starts_with("http") {
                         tracing::info!("settled home: {url}");
                         *self.shared.home.borrow_mut() = Some(url);
@@ -346,6 +367,25 @@ wrap_load_handler! {
                 let z = self.shared.zoom.get();
                 if z != 0.0 {
                     with_host(&self.shared, |h| h.set_zoom_level(z));
+                }
+            }
+
+            // Inject the app's per-app custom CSS after each page finishes
+            // loading, by appending a <style> element to the document head.
+            if is_loading == 0 {
+                if let Some(css) = crate::app::current_app().and_then(|a| a.custom_css) {
+                    if let Some(frame) = browser.and_then(|b| b.main_frame()) {
+                        let js = format!(
+                            "(function(){{var s=document.createElement('style');\
+                             s.textContent={};document.head.appendChild(s);}})();",
+                            js_string_literal(&css),
+                        );
+                        frame.execute_java_script(
+                            Some(&CefString::from(js.as_str())),
+                            None,
+                            0,
+                        );
+                    }
                 }
             }
         }
