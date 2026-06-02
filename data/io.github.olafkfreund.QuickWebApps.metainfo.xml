@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.2" date="2026-06-02">
+      <description>
+        <p>Updated to the GNOME 50 runtime (47 and 48 are end-of-life). Apps with multi-domain sign-in (Microsoft Outlook/Teams, Slack) now keep authentication in-window by default, fixing broken logins. Link handling is more reliable.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-06-02">
       <description>
         <p>Embedded service panels (Gmail's Tasks, Keep and Calendar) now load in-window instead of hanging or spawning stray windows. Mail and chat apps open links from messages in the system browser by default, while multi-domain sign-in still completes inside the app.</p>
