@@ -652,6 +652,9 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
     let title = webapp.name.clone();
     let app_id = webapp.id.clone();
     let color_scheme = webapp.color_scheme;
+    // When enabled, closing the window hides it (keeping the process + CEF
+    // browser alive) so desktop notifications keep arriving.
+    let background = webapp.run_in_background;
     // Restore last-session geometry + zoom; fall back to the configured size.
     let (init_w, init_h, init_max) = match load_window_state(&webapp.id) {
         Some((m, w, h, z)) => {
@@ -661,7 +664,20 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         None => (webapp.window.0 as i32, webapp.window.1 as i32, false),
     };
 
+    // Single-instance window: a re-launch (adw::Application routes it to the
+    // running primary instance's `activate`) re-shows this window instead of
+    // building a second one. Essential for background apps, whose hidden
+    // window must be re-presented rather than duplicated.
+    let window_cell: Rc<RefCell<Option<adw::ApplicationWindow>>> = Rc::new(RefCell::new(None));
+
     application.connect_activate(move |app| {
+        // Re-launch of an already-running instance: just re-show the existing
+        // window (e.g. a background app whose window was hidden on close).
+        if let Some(window) = window_cell.borrow().as_ref() {
+            window.present();
+            return;
+        }
+
         // Match the window chrome to a forced color scheme (web content is
         // handled separately via the blink preferredColorScheme switch).
         match color_scheme {
@@ -759,6 +775,8 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         if init_max {
             window.maximize();
         }
+        // Remember the window so a re-launch re-shows it (single instance).
+        *window_cell.borrow_mut() = Some(window.clone());
         // Persist geometry + zoom on close so the next launch restores them.
         {
             let shared = shared.clone();
@@ -766,6 +784,13 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
             window.connect_close_request(move |win| {
                 let (w, h) = win.default_size();
                 save_window_state(&app_id, win.is_maximized(), w, h, shared.zoom.get());
+                // Background apps stay alive: hide the window (and keep the CEF
+                // browser running) instead of quitting, so notifications keep
+                // arriving. A re-launch re-presents this same window.
+                if background {
+                    win.set_visible(false);
+                    return gtk::glib::Propagation::Stop;
+                }
                 gtk::glib::Propagation::Proceed
             });
         }

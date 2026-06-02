@@ -206,6 +206,10 @@ pub struct WebApp {
     /// Force light/dark appearance for the site, overriding the system theme.
     #[serde(default)]
     pub color_scheme: ColorScheme,
+    /// Keep the app running after its window is closed: closing hides the
+    /// window instead of quitting, so background notifications keep arriving.
+    #[serde(default)]
+    pub run_in_background: bool,
 }
 
 impl WebApp {
@@ -235,6 +239,7 @@ impl WebApp {
             window: WindowSize::default(),
             adblock: false,
             color_scheme: ColorScheme::System,
+            run_in_background: false,
         }
     }
 

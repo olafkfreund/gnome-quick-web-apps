@@ -180,6 +180,19 @@ pub fn present<F: Fn() + 'static>(
         .active(existing.as_ref().map(|a| a.adblock).unwrap_or(false))
         .build();
 
+    // Keep the process alive after the window closes so notifications keep
+    // arriving (closing just hides the window). Off by default.
+    let background_switch = adw::SwitchRow::builder()
+        .title("Keep running in the background")
+        .subtitle("Closing the window hides it so notifications keep arriving")
+        .active(
+            existing
+                .as_ref()
+                .map(|a| a.run_in_background)
+                .unwrap_or(false),
+        )
+        .build();
+
     // "Set as default for…" toggles, rebuilt from the URL (email for web mail,
     // calendar for web calendars, nothing otherwise).
     let handlers_group = adw::PreferencesGroup::builder()
@@ -209,6 +222,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&link_row);
     group.add(&appearance_row);
     group.add(&adblock_switch);
+    group.add(&background_switch);
 
     let page = adw::PreferencesPage::new();
     page.add(&group);
@@ -394,6 +408,8 @@ pub fn present<F: Fn() + 'static>(
         appearance_row,
         #[weak]
         adblock_switch,
+        #[weak]
+        background_switch,
         #[strong]
         role_switches,
         #[strong]
@@ -443,6 +459,7 @@ pub fn present<F: Fn() + 'static>(
             app.external_links_in_browser = scope != qwa_core::LinkScope::InWindow;
             app.color_scheme = color_scheme_from_index(appearance_row.selected());
             app.adblock = adblock_switch.is_active();
+            app.run_in_background = background_switch.is_active();
             app.handlers = role_switches
                 .borrow()
                 .iter()
