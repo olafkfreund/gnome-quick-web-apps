@@ -262,7 +262,9 @@ wrap_life_span_handler! {
                     || scope
                         .as_deref()
                         .is_some_and(|s| qwa_core::is_in_scope(&url, Some(s), &home));
-                if external && !same_app {
+                // Identity/SSO/CAPTCHA popups always stay in-window so sign-in
+                // works even with external-links mode on.
+                if external && !same_app && !qwa_core::is_infra_host(&url) {
                     if let Err(e) = open::that(&url) {
                         tracing::warn!("failed to open external url {url}: {e}");
                     }
@@ -338,6 +340,7 @@ wrap_request_handler! {
                 return 0;
             };
             let url = CefString::from(&request.url()).to_string();
+            let method = CefString::from(&request.method()).to_string();
 
             // Only top-level navigations participate in routing / browser
             // diversion. Embedded service panels (Gmail's Tasks/Keep/Calendar
@@ -370,12 +373,17 @@ wrap_request_handler! {
                 Some(h) => h,
                 None => return 0,
             };
-            // Only eject a *deliberate* top-level click that leaves the app's
-            // site. Automatic cross-domain redirects (SSO token hops like
-            // outlook -> login.microsoftonline -> login.live) are NOT gestures,
-            // so they stay in-window and sign-in completes here.
+            // Only eject a *deliberate* top-level GET that leaves the app's
+            // site. Excluded so sign-in keeps working in-window:
+            //   - non-GET (a form POST opened in the browser becomes a broken
+            //     GET, e.g. Microsoft's AADSTS900561);
+            //   - automatic cross-domain redirects (SSO token hops) — not
+            //     gestures;
+            //   - known identity/SSO/CAPTCHA hosts (is_infra_host).
             if user_gesture == 1
                 && is_redirect == 0
+                && method.eq_ignore_ascii_case("GET")
+                && !qwa_core::is_infra_host(&url)
                 && !qwa_core::is_in_scope(&url, self.scope.as_deref(), &home)
             {
                 if let Err(e) = open::that(&url) {

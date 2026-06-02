@@ -152,6 +152,41 @@ pub fn same_site(a: &str, b: &str) -> bool {
     }
 }
 
+/// Known identity / SSO / CAPTCHA hosts that must always load *in-window*,
+/// even when external-links mode is on. Many sign-in flows hop to one of these
+/// on a different registrable domain (and often via POST); ejecting them to the
+/// system browser breaks login (e.g. Microsoft's AADSTS900561). Mirrors the
+/// pragmatic allowlist used by eyekay/webapps, extended for common IdPs.
+pub fn is_infra_host(target: &str) -> bool {
+    let Some(host) = url::Url::parse(target)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
+    else {
+        return false;
+    };
+    const EXACT: &[&str] = &[
+        "accounts.google.com",
+        "accounts.youtube.com",
+        "appleid.apple.com",
+        "challenges.cloudflare.com",
+    ];
+    // Subdomain suffixes (note the leading dot, so the bare domain isn't matched
+    // unless it's actually a sub-host like `login.microsoftonline.com`).
+    const SUFFIX: &[&str] = &[
+        ".microsoftonline.com",
+        ".live.com",
+        ".microsoft.com",
+        ".windows.net",
+        ".okta.com",
+        ".auth0.com",
+        ".b2clogin.com",
+        ".onelogin.com",
+        ".duosecurity.com",
+        ".pingidentity.com",
+    ];
+    EXACT.contains(&host.as_str()) || SUFFIX.iter().any(|s| host.ends_with(s))
+}
+
 pub use webapp::{Category, WebApp, WindowSize};
 
 #[cfg(test)]
@@ -207,5 +242,24 @@ mod scope_tests {
             Some("https://x.com/"),
             "https://x.com"
         ));
+    }
+
+    #[test]
+    fn infra_hosts_match() {
+        use super::is_infra_host;
+        // Identity / SSO / CAPTCHA hosts that must stay in-window.
+        assert!(is_infra_host(
+            "https://login.microsoftonline.com/common/oauth2"
+        ));
+        assert!(is_infra_host("https://login.live.com/oauth20"));
+        assert!(is_infra_host("https://accounts.google.com/signin"));
+        assert!(is_infra_host("https://challenges.cloudflare.com/turnstile"));
+        assert!(is_infra_host("https://acme.okta.com/login"));
+        // Ordinary destinations are not infra and may leave for the browser.
+        assert!(!is_infra_host("https://www.foxtons.co.uk/"));
+        assert!(!is_infra_host("https://example.com/"));
+        // teams.microsoft.com is a `.microsoft.com` sub-host, so it counts as
+        // infra; keeping it in-window is harmless since it's the app itself.
+        assert!(is_infra_host("https://teams.microsoft.com/"));
     }
 }
