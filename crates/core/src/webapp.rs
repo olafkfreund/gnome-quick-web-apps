@@ -227,6 +227,11 @@ pub struct WebApp {
     /// location is more sensitive and rarely needed; opt in per app.
     #[serde(default)]
     pub allow_location: bool,
+    /// Show an unread-count badge on the dock (via the Unity LauncherEntry
+    /// API), sourced from the page title. Default false; mail/chat templates
+    /// pre-enable it.
+    #[serde(default)]
+    pub show_badge: bool,
 }
 
 impl WebApp {
@@ -260,6 +265,7 @@ impl WebApp {
             custom_css: None,
             allow_camera_mic: true,
             allow_location: false,
+            show_badge: false,
         }
     }
 

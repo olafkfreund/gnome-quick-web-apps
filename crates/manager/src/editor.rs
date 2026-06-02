@@ -267,6 +267,12 @@ pub fn present<F: Fn() + 'static>(
         .title("Allow location")
         .active(existing.as_ref().map(|a| a.allow_location).unwrap_or(false))
         .build();
+    // Show an unread-count badge on the dock, sourced from the page title.
+    let badge_switch = adw::SwitchRow::builder()
+        .title("Show unread badge")
+        .subtitle("Show the unread count from the page title on the dock")
+        .active(existing.as_ref().map(|a| a.show_badge).unwrap_or(false))
+        .build();
     // Per-app custom CSS, injected into every page after load. EntryRow is
     // single-line, so use a TextView inside an expander for multi-line input.
     let css_view = gtk::TextView::builder()
@@ -323,6 +329,7 @@ pub fn present<F: Fn() + 'static>(
     group.add(&background_switch);
     group.add(&camera_switch);
     group.add(&location_switch);
+    group.add(&badge_switch);
     group.add(&css_expander);
 
     let page = adw::PreferencesPage::new();
@@ -520,6 +527,8 @@ pub fn present<F: Fn() + 'static>(
         #[weak]
         location_switch,
         #[weak]
+        badge_switch,
+        #[weak]
         css_view,
         #[strong]
         role_switches,
@@ -576,6 +585,7 @@ pub fn present<F: Fn() + 'static>(
             app.run_in_background = background_switch.is_active();
             app.allow_camera_mic = camera_switch.is_active();
             app.allow_location = location_switch.is_active();
+            app.show_badge = badge_switch.is_active();
             app.custom_css = {
                 let buffer = css_view.buffer();
                 let t = buffer

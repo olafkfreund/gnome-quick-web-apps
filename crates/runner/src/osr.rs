@@ -11,6 +11,7 @@
 //! and the header-bar nav controls land next (#11 input pass, #12).
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -773,6 +774,11 @@ wrap_client! {
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(OsrDownloadHandler::new())
         }
+
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            // Per-window app context drives this window's dock badge.
+            Some(OsrDisplayHandler::new(self.app.clone()))
+        }
     }
 }
 
@@ -780,6 +786,59 @@ thread_local! {
     /// The running GApplication, stashed so the BrowserProcessHandler relaunch
     /// callback (which has no other handle to it) can open windows on it.
     static GTK_APP: RefCell<Option<adw::Application>> = const { RefCell::new(None) };
+
+    /// The session-bus connection, opened once at process start, used to emit
+    /// per-app dock-badge updates (Unity LauncherEntry). `None` when the bus is
+    /// unavailable — badge updates are then silently skipped.
+    static DBUS: RefCell<Option<gtk::gio::DBusConnection>> = const { RefCell::new(None) };
+}
+
+wrap_display_handler! {
+    struct OsrDisplayHandler {
+        app: Rc<WebApp>,
+    }
+
+    impl DisplayHandler {
+        fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
+            // Only drive the dock badge when this app opted in.
+            if !self.app.show_badge {
+                return;
+            }
+            // Parse the unread count from the live page title; an absent/zero
+            // count clears the badge rather than leaving a stale number.
+            let count = title
+                .map(|t| t.to_string())
+                .and_then(|t| qwa_core::badge::count_from_title(&t))
+                .unwrap_or(0);
+            emit_badge(&self.app.id, count);
+        }
+    }
+}
+
+/// Emit a Unity LauncherEntry `Update` signal so docks/panels that honour the
+/// API show `count` on this app's launcher. Best-effort: does nothing when the
+/// session bus is unavailable.
+fn emit_badge(app_id: &str, count: u32) {
+    use gtk::glib::prelude::ToVariant;
+
+    DBUS.with(|c| {
+        if let Some(conn) = c.borrow().as_ref() {
+            let app_uri = format!("application://{}.{}.desktop", qwa_core::APP_ID, app_id);
+            let mut props: HashMap<String, gtk::glib::Variant> = HashMap::new();
+            props.insert("count".to_string(), (count as i64).to_variant());
+            props.insert("count-visible".to_string(), (count > 0).to_variant());
+            let params = (app_uri, props).to_variant();
+            if let Err(e) = conn.emit_signal(
+                None,
+                "/com/canonical/Unity/LauncherEntry",
+                "com.canonical.Unity.LauncherEntry",
+                "Update",
+                Some(&params),
+            ) {
+                tracing::debug!("failed to emit launcher badge update: {e}");
+            }
+        }
+    });
 }
 
 /// Build and present one app window (header + nav + profile cue + drawing area)
@@ -1193,6 +1252,14 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         );
         return;
     }
+
+    // Open the session bus once for the whole process, stashed for the badge
+    // emitter. Best-effort: a missing bus just disables badge updates.
+    let dbus = gtk::gio::bus_get_sync(gtk::gio::BusType::Session, gtk::gio::Cancellable::NONE).ok();
+    if dbus.is_none() {
+        tracing::debug!("session bus unavailable; dock badges disabled");
+    }
+    DBUS.with(|c| *c.borrow_mut() = dbus);
 
     // One GApplication per *profile* (not per app): same-profile apps share the
     // single CEF process, so they must also share one GApplication. The id is

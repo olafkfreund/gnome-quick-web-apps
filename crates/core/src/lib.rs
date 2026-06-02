@@ -5,6 +5,7 @@
 //! Both the GTK4 `manager` and the CEF `runner` depend on it.
 
 pub mod adblock;
+pub mod badge;
 pub mod handlers;
 pub mod icon;
 pub mod launcher;

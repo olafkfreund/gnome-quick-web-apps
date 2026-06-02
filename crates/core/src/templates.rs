@@ -13,6 +13,9 @@ pub struct Template {
     /// Default the app to opening off-host links in the system browser. Set
     /// for mail/chat apps where links inside messages should leave the app.
     pub external_links: bool,
+    /// Pre-enable the dock unread badge. Set for communication apps (mail /
+    /// chat) whose title carries an unread count.
+    pub show_badge: bool,
 }
 
 const fn t(
@@ -27,6 +30,7 @@ const fn t(
         category,
         icon,
         external_links: false,
+        show_badge: false,
     }
 }
 
@@ -45,6 +49,7 @@ const fn tc(
         category,
         icon,
         external_links: true,
+        show_badge: true,
     }
 }
 
