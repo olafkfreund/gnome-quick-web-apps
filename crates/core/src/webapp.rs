@@ -478,6 +478,51 @@ mod tests {
     }
 
     #[test]
+    fn nix_module_full_schema_json_deserializes() {
+        // The exact full-schema JSON the Home Manager module emits (nix/hm-module.nix
+        // mkAppJson). If this stops deserializing, the Nix module silently breaks —
+        // this test pins the module↔runner contract. Keep field keys/values in sync
+        // with mkAppJson.
+        let json = r##"{
+            "id": "youtube-music",
+            "name": "YouTube Music",
+            "url": "https://music.youtube.com",
+            "category": "Audio",
+            "scope": null,
+            "icon_path": null,
+            "theme_color": null,
+            "user_agent": null,
+            "profile": null,
+            "mobile": false,
+            "external_links_in_browser": false,
+            "link_scope": "exact_host",
+            "handlers": [{ "mime": "x-scheme-handler/mailto", "template": "https://music.youtube.com" }],
+            "window": [960, 720],
+            "adblock": false,
+            "color_scheme": "system",
+            "run_in_background": true,
+            "custom_css": null,
+            "allow_camera_mic": true,
+            "allow_location": false,
+            "show_badge": false,
+            "autostart": false
+        }"##;
+
+        let app = WebApp::from_json(json).expect("Nix-module JSON must deserialize");
+        assert_eq!(app.id, "youtube-music");
+        assert_eq!(app.name, "YouTube Music");
+        assert_eq!(app.category, Category::Audio);
+        assert_eq!(app.link_scope, Some(LinkScope::ExactHost));
+        assert_eq!(app.color_scheme, ColorScheme::System);
+        assert!(app.run_in_background);
+        assert!(app.allow_camera_mic);
+        assert_eq!(app.handlers.len(), 1);
+        assert_eq!(app.handlers[0].mime, "x-scheme-handler/mailto");
+        assert_eq!(app.window.0, 960);
+        assert_eq!(app.window.1, 720);
+    }
+
+    #[test]
     fn loads_v0_1_0_era_json() {
         // A config written before any of the newer fields existed: only the
         // original schema (id, name, url, scope, category, icon_path,

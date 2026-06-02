@@ -7,8 +7,8 @@
   };
 
   outputs =
-    { nixpkgs, flake-utils, ... }:
-    flake-utils.lib.eachDefaultSystem (
+    { self, nixpkgs, flake-utils, ... }:
+    (flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs { inherit system; };
@@ -174,5 +174,10 @@
           '';
         };
       }
-    );
+    ))
+    // {
+      # Declarative web apps "the Nix way" — see README.
+      homeManagerModules.default = import ./nix/hm-module.nix self;
+      homeManagerModules.quick-web-apps = import ./nix/hm-module.nix self;
+    };
 }
