@@ -114,7 +114,8 @@
     <h2>Everything a desktop app should be</h2>
     <div class="grid">
       <div class="card"><h3>One-click templates</h3><p>A curated catalog of 50+ popular apps — Gmail, Teams, Spotify, WhatsApp, Notion, Figma and the major AI tools — added in a single click.</p></div>
-      <div class="card"><h3>Shared logins + profile color</h3><p>Group apps onto a profile to sign in once, or keep each private — and a colored indicator shows which identity (Work vs Private) each app uses.</p></div>
+      <div class="card"><h3>Shared logins + profile color</h3><p>Group apps onto a profile to sign in once and run them side by side with one session, or keep each private — a colored indicator shows which identity (Work vs Private) each app uses.</p></div>
+      <div class="card"><h3>Identify as any OS</h3><p>Spoof the browser user agent — Windows, macOS, Mobile or a custom string — for services that gate features by operating system.</p></div>
       <div class="card"><h3>Native window &amp; identity</h3><p>Each app gets its own libadwaita window, dock icon and Alt-Tab entry — not a browser tab.</p></div>
       <div class="card"><h3>Smart link handling</h3><p>Keep everything in-window, or send other sites to your browser — with an SSO/CAPTCHA allowlist so multi-domain sign-in (Microsoft, Google) never breaks.</p></div>
       <div class="card"><h3>Sticky notifications + background</h3><p>Notifications carry the app's name and icon and stay in the list; background mode keeps an app running so they keep arriving after you close it.</p></div>
@@ -156,6 +157,25 @@
     <img src="screenshots/app-window.png" alt="A web app rendering natively in its own GNOME window" />
     <figcaption>Crisp native rendering in a real window — indistinguishable from a desktop app.</figcaption>
   </figure>
+
+  <section class="wrap">
+    <span class="eyebrow">In use</span>
+    <h2>Work and personal, side by side</h2>
+    <figure class="shot">
+      <img src="screenshots/teams.png" alt="Microsoft Teams running as a native window on a shared Work profile" />
+      <figcaption>Microsoft Teams on a shared “Work” profile — the title bar shows the profile indicator. Apps sharing a profile run at the same time with one shared login.</figcaption>
+    </figure>
+    <div class="split" style="margin-top:40px">
+      <figure style="margin:0">
+        <img src="screenshots/youtube-music.png" alt="YouTube Music playing in its own window" />
+        <figcaption style="color:var(--muted);font-size:14px;margin-top:10px">YouTube Music with full audio — a real media app.</figcaption>
+      </figure>
+      <figure style="margin:0">
+        <img src="screenshots/youtube-video.png" alt="YouTube video playing with DRM and codec support" />
+        <figcaption style="color:var(--muted);font-size:14px;margin-top:10px">Video just works — Chromium (CEF) brings DRM and codecs.</figcaption>
+      </figure>
+    </div>
+  </section>
 
   <section class="install" id="install">
     <div class="wrap">

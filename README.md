@@ -40,6 +40,26 @@
       </td>
     </tr>
   </table>
+
+  <br>
+
+  <img alt="Microsoft Teams running as a native window on a Work profile" src="resources/screenshots/teams.png" width="860"><br>
+  <em>Microsoft Teams on a shared “Work” profile — note the profile indicator in the title bar. Apps sharing a profile run side by side with one shared login.</em>
+
+  <br><br>
+
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img alt="YouTube Music playing in its own window" src="resources/screenshots/youtube-music.png"><br>
+        <em>YouTube Music with full audio — a real media app, not a tab.</em>
+      </td>
+      <td align="center" width="50%">
+        <img alt="YouTube video playing with DRM/codec support" src="resources/screenshots/youtube-video.png"><br>
+        <em>Video plays out of the box — Chromium (CEF) means DRM and codecs just work.</em>
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
@@ -83,8 +103,11 @@ app" button:
 - **One-click templates** — 50+ curated apps (Gmail, Teams, Spotify, WhatsApp,
   Notion, Figma, the major AI tools…) added with the right icon in a click.
 - **Shared or isolated logins** — group apps onto a named profile to sign in
-  once, or keep each app private. A **colored profile indicator** in the manager
-  and window shows at a glance which identity an app uses (e.g. Work vs Private).
+  once, or keep each app private. Apps sharing a profile **run side by side**
+  (one process, one shared session). A **colored profile indicator** in the
+  manager and window shows which identity an app uses (e.g. Work vs Private).
+- **Spoof the browser OS** — an "Identify as" option (Windows / macOS / Mobile /
+  custom user agent) for services that gate features by operating system.
 - **Smart link handling** — a tri-state per app: keep everything in-window, or
   send other sites to your browser by registrable domain or by exact host. A
   built-in **identity/SSO/CAPTCHA allowlist** keeps multi-domain sign-in
