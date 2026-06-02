@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.15" date="2026-06-03">
+      <description>
+        <p>Cleanup: removes the unused Widevine CDM provisioning code and the Flatpak filesystem permissions that went with it, now that DRM streaming is confirmed unsupported. Smaller runner and a tighter Flatpak sandbox (fewer host-filesystem permissions).</p>
+      </description>
+    </release>
     <release version="0.1.14" date="2026-06-03">
       <description>
         <p>Removes the DRM-only streaming services (Netflix, Spotify, Apple Music, Disney+, Prime Video, Max, Tidal, Deezer) from the one-click templates: they require a Google-certified Widevine that no embeddable engine can provide, so they cannot play here. Everything that does not depend on DRM keeps working — YouTube, Twitch, SoundCloud and every non-streaming web app. The README explains the limitation and the investigation behind it.</p>

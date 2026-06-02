@@ -39,14 +39,6 @@ finish-args:
   - --talk-name=org.freedesktop.Notifications
   # Open external links / set default handlers
   - --talk-name=org.freedesktop.portal.OpenURI
-  # Read-only access to a host browser's Widevine CDM so DRM playback (Apple
-  # Music, Netflix, …) works under CEF, which ships none (#36). The CDM is
-  # proprietary and not redistributable, so we reuse one the user already has.
-  - --filesystem=~/.config/google-chrome/WidevineCdm:ro
-  - --filesystem=~/.config/chromium/WidevineCdm:ro
-  - --filesystem=~/.config/microsoft-edge/WidevineCdm:ro
-  - --filesystem=~/.config/BraveSoftware/Brave-Browser/WidevineCdm:ro
-  - --filesystem=/opt/google/chrome/WidevineCdm:ro
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin

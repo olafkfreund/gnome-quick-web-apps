@@ -7,7 +7,6 @@
 
 mod app;
 mod osr;
-mod widevine;
 
 fn main() -> Result<(), &'static str> {
     tracing_subscriber::fmt()

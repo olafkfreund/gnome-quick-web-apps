@@ -204,42 +204,10 @@ wrap_app! {
     }
 }
 
-/// Enable Chromium's "Sites can play protected content" so EME/DRM playback
-/// (Netflix, Apple Music) works once a Widevine CDM is present. The CDM loads
-/// separately (see `widevine::provision`), but DRM stays gated behind this
-/// setting, which CEF's Alloy runtime defaults to off — Netflix surfaces that
-/// as error M7701-1003 ("make sure 'Sites can play protected content' is
-/// selected").
-///
-/// This is a **content setting** (`PROTECTED_MEDIA_IDENTIFIER`), not a
-/// preference — the runtime diagnostic in earlier builds confirmed none of the
-/// candidate prefs (`settings.privacy.drm_enabled`, …) were settable. Passing
-/// empty URLs sets the global default, so it applies to every web app.
-fn enable_protected_content() {
-    // NOTE (#36): on CEF 145's Alloy/OSR runtime, both the preference API
-    // (no DRM pref is settable) and `RequestContext::set_content_setting`
-    // (it segfaults inside libcef, regardless of args) are dead ends for
-    // enabling "Sites can play protected content". So DRM playback (Netflix
-    // M7701-1003) is not yet enabled. This is intentionally a no-op — earlier
-    // attempts crashed every web app on startup. Tracked in #36; the Widevine
-    // CDM itself still loads (see `widevine::provision`).
-    tracing::debug!(
-        "protected-content enablement unsupported on this CEF build; DRM playback \
-         stays disabled (#36)"
-    );
-}
-
 wrap_browser_process_handler! {
     struct OsrBrowserProcessHandler {}
 
     impl BrowserProcessHandler {
-        // Once CEF is initialized (prefs are now available on the UI thread),
-        // turn on "Sites can play protected content" so DRM playback works with
-        // the reused Widevine CDM (Netflix M7701-1003).
-        fn on_context_initialized(&self) {
-            enable_protected_content();
-        }
-
         // A second launch of an app sharing this profile cannot start its own
         // CEF process (CEF is a singleton per root_cache_path), so CEF forwards
         // that process's command line here, to the already-running primary, and
@@ -2438,11 +2406,6 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         "CHROME_DESKTOP",
         format!("{}.{}.desktop", qwa_core::APP_ID, webapp.id),
     );
-
-    // Best-effort: reuse a host browser's Widevine CDM so DRM playback (Apple
-    // Music, Netflix, …) works under CEF's Alloy/OSR runtime, which ships none
-    // (#36). Must run before CEF init so the engine discovers it at startup.
-    crate::widevine::provision(&qwa_core::paths::profile_dir(webapp.profile_key()));
 
     let settings = crate::app::build_settings(&webapp);
 
