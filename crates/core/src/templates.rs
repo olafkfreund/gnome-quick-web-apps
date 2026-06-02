@@ -96,7 +96,10 @@ pub fn all() -> Vec<Template> {
             "logos:google-maps",
         ),
         // Microsoft
-        tc(
+        // Outlook stays in-window: Microsoft sign-in spans multiple registrable
+        // domains (microsoftonline.com, live.com) and uses POST, so ejecting it
+        // to the browser breaks SSO (AADSTS900561).
+        t(
             "Outlook",
             "https://outlook.office.com",
             Network,
@@ -139,13 +142,16 @@ pub fn all() -> Vec<Template> {
             Network,
             "logos:discord-icon",
         ),
-        tc(
+        // Slack and Messenger sign-in often leaves the app's registrable domain
+        // (enterprise SSO / IdPs, facebook.com), so keep them in-window to avoid
+        // breaking login; users can opt in via the editor.
+        t(
             "Slack",
             "https://app.slack.com",
             Network,
             "logos:slack-icon",
         ),
-        tc(
+        t(
             "Messenger",
             "https://messenger.com",
             Network,
