@@ -210,6 +210,31 @@ fn present_templates<F: Fn() + 'static>(parent: &adw::ApplicationWindow, on_save
 }
 
 /// Clear and rebuild the app list. Called on startup and after any change.
+/// A small (12x12) vertically-centered colored circle used to indicate an
+/// app's login profile at a glance.
+fn profile_dot(color: (u8, u8, u8)) -> gtk::DrawingArea {
+    let (r, g, b) = color;
+    let dot = gtk::DrawingArea::builder()
+        .content_width(12)
+        .content_height(12)
+        .valign(gtk::Align::Center)
+        .build();
+    dot.set_draw_func(move |_area, cr, w, h| {
+        let d = (w.min(h) as f64) - 2.0;
+        let radius = (d / 2.0).max(0.0);
+        cr.arc(
+            w as f64 / 2.0,
+            h as f64 / 2.0,
+            radius,
+            0.0,
+            std::f64::consts::TAU,
+        );
+        cr.set_source_rgb(r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
+        let _ = cr.fill();
+    });
+    dot
+}
+
 fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
@@ -234,10 +259,24 @@ fn populate(container: &gtk::Box, window: &adw::ApplicationWindow) {
         .build();
 
     for app in apps {
+        // Friendly profile label: the shared session key, or "Private" for a
+        // per-app profile (None / blank).
+        let profile_label = app
+            .profile
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("Private")
+            .to_string();
+
         let row = adw::ActionRow::builder()
             .title(app.name.as_str())
-            .subtitle(app.url.as_str())
+            .subtitle(profile_label.as_str())
             .build();
+
+        // A small colored dot indicating which login profile this app uses,
+        // so the same profile is the same color across all its apps.
+        let dot = profile_dot(qwa_core::profile_color(app.profile.as_deref()));
+        row.add_prefix(&dot);
 
         // App icon on the left for quick visual scanning.
         let icon = gtk::Image::builder().pixel_size(32).build();

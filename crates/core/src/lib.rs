@@ -205,7 +205,64 @@ pub fn stays_in_window(target: &str, scope: Option<&str>, home: &str, mode: Link
     }
 }
 
+/// A deterministic display color for a login profile, so the same profile
+/// is always the same color across all its apps. Returns (r,g,b). `None`
+/// (a private per-app profile) maps to a neutral grey.
+pub fn profile_color(profile: Option<&str>) -> (u8, u8, u8) {
+    // Adwaita-ish palette of pleasant, distinct colors.
+    const PALETTE: &[(u8, u8, u8)] = &[
+        (0x35, 0x84, 0xe4), // blue   #3584e4
+        (0x33, 0xd1, 0x7a), // green  #33d17a
+        (0xf6, 0xd3, 0x2d), // yellow #f6d32d
+        (0xff, 0x78, 0x00), // orange #ff7800
+        (0xe0, 0x1b, 0x24), // red    #e01b24
+        (0x91, 0x41, 0xac), // purple #9141ac
+        (0x21, 0x90, 0xa4), // teal   #2190a4
+        (0xd1, 0x6d, 0x9e), // pink   #d16d9e
+    ];
+    const GREY: (u8, u8, u8) = (148, 148, 148);
+
+    let key = match profile {
+        Some(s) if !s.trim().is_empty() => s,
+        _ => return GREY,
+    };
+    // FNV-1a, a simple stable hash (do NOT use RandomState — not stable).
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    PALETTE[(hash % PALETTE.len() as u64) as usize]
+}
+
 pub use webapp::{Category, ColorScheme, LinkScope, WebApp, WindowSize};
+
+#[cfg(test)]
+mod profile_color_tests {
+    use super::profile_color;
+
+    #[test]
+    fn deterministic_same_input_same_output() {
+        assert_eq!(profile_color(Some("Work")), profile_color(Some("Work")));
+        assert_eq!(
+            profile_color(Some("personal")),
+            profile_color(Some("personal"))
+        );
+    }
+
+    #[test]
+    fn none_and_empty_map_to_grey() {
+        let grey = (148, 148, 148);
+        assert_eq!(profile_color(None), grey);
+        assert_eq!(profile_color(Some("")), grey);
+        assert_eq!(profile_color(Some("   ")), grey);
+    }
+
+    #[test]
+    fn named_profile_is_not_grey() {
+        assert_ne!(profile_color(Some("Work")), (148, 148, 148));
+    }
+}
 
 #[cfg(test)]
 mod scope_tests {
