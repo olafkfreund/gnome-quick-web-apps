@@ -2407,6 +2407,11 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8, webapp: WebApp) {
         format!("{}.{}.desktop", qwa_core::APP_ID, webapp.id),
     );
 
+    // Best-effort: reuse a host browser's Widevine CDM so DRM playback (Apple
+    // Music, Netflix, …) works under CEF's Alloy/OSR runtime, which ships none
+    // (#36). Must run before CEF init so the engine discovers it at startup.
+    crate::widevine::provision(&qwa_core::paths::profile_dir(webapp.profile_key()));
+
     let settings = crate::app::build_settings(&webapp);
 
     let mut app = OsrApp::new();
