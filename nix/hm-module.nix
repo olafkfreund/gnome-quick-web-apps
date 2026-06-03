@@ -159,6 +159,17 @@ let
         default = [ ];
         description = "URL-scheme handlers this app registers as the default for.";
       };
+      setDefaultHandlers = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Make this app the system default for each of its `handlers` mime
+          types, via `xdg.mimeApps.defaultApplications`. Off by default so the
+          module never clobbers your existing defaults; opt in per app. On
+          NixOS this is the only way to set the default (the runtime
+          `xdg-mime` path can't write a read-only managed `mimeapps.list`).
+        '';
+      };
       extraConfig = mkOption {
         type = types.attrs;
         default = { };
@@ -215,6 +226,16 @@ let
       settings.StartupWMClass = "${appId}.${id}";
     }) cfg.apps;
 
+  # Default-application map (mime -> .desktop) for apps that opted into
+  # setDefaultHandlers. On NixOS this is the only way to set default handlers,
+  # since the runtime xdg-mime path can't write a managed mimeapps.list. Only
+  # apps that opt in appear here, so existing defaults are never clobbered.
+  handlerDefaults = lib.listToAttrs (lib.flatten (lib.mapAttrsToList (id: app:
+    if app.setDefaultHandlers then
+      map (h: lib.nameValuePair h.mime "${appId}.${id}.desktop") app.handlers
+    else
+      [ ]) cfg.apps));
+
 in
 {
   options.programs.quick-web-apps = {
@@ -257,5 +278,11 @@ in
     home.packages = [ cfg.package ];
     xdg.dataFile = appConfigFiles;
     xdg.desktopEntries = desktopEntries;
+    # Only manage mimeApps when at least one app opted into setDefaultHandlers,
+    # so we never take over a user's mimeapps.list otherwise.
+    xdg.mimeApps = lib.mkIf (handlerDefaults != { }) {
+      enable = lib.mkDefault true;
+      defaultApplications = handlerDefaults;
+    };
   };
 }

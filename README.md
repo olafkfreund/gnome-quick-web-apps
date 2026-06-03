@@ -265,6 +265,49 @@ GUI-created ones freely — they live side by side.
 > **DRM streaming** (Netflix, Spotify, …) is not supported on any platform — see
 > the [DRM streaming](#drm-streaming-is-not-supported) note above for why.
 
+### URL-scheme handlers (mailto, webcal, …) — and how to make them stick on NixOS
+
+A web app can become your system handler for a scheme (e.g. Gmail for
+`mailto:`). This has **two layers**:
+
+1. **Registration** — the app's `.desktop` declares `MimeType=x-scheme-handler/mailto`.
+   This always works (installed by the GUI and by the Nix module alike), so the
+   app *appears* as a choice for that scheme.
+2. **Default** — `~/.config/mimeapps.list` decides *which* app actually opens
+   the link. The GUI sets this at runtime via `xdg-mime`. **On NixOS that file
+   is a read-only symlink into the store**, so the runtime path can't write it
+   and is skipped — you must set the default declaratively.
+
+For NixOS, opt in per app with **`setDefaultHandlers = true`**; the module then
+writes `xdg.mimeApps.defaultApplications` for you (off by default, so it never
+clobbers your existing defaults):
+
+```nix
+programs.quick-web-apps.apps.gmail = {
+  name = "Gmail";
+  url = "https://mail.google.com";
+  category = "Network";
+  setDefaultHandlers = true;            # NixOS: make it the default for its handlers
+  handlers = [{
+    mime = "x-scheme-handler/mailto";
+    template = "https://mail.google.com/mail/?view=cm&fs=1&to={value}";
+  }];
+};
+```
+
+**Verify your handlers** (any platform):
+
+```sh
+gio mime x-scheme-handler/mailto          # which apps are registered + the default
+xdg-mime query default x-scheme-handler/mailto   # the current default .desktop
+gio open 'mailto:test@example.com?subject=Hi'    # actually open a link → should launch the app's compose view
+```
+
+If `gio open` lands on the app's compose page, the full chain works
+(registration → launch → the runner expands the `mailto:` via your `template`).
+If the default is wrong on NixOS, that's the read-only `mimeapps.list` — use
+`setDefaultHandlers` above (or set `xdg.mimeApps.defaultApplications` yourself).
+
 ### Everyone else — Flatpak
 
 The easiest path is the prebuilt bundle: grab `gnome-quick-web-apps-x86_64.flatpak`
