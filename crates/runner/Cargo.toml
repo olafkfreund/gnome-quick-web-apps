@@ -32,6 +32,9 @@ open = "5"
 # cairo comes via gtk::cairo, so no separate cairo crate (avoids version skew).
 gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }
 adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
+# Per-window Wayland app_id, so each web app's window matches its own .desktop
+# (correct dock icon + name) even when several share one process via a profile.
+gdk4-wayland = { version = "0.9", features = ["v4_12"] }
 
 [features]
 default = ["linux-x11"]

@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.17" date="2026-06-03">
+      <description>
+        <p>Fixes the dock and Alt-Tab: each web app now shows its own name and icon, even when several apps share one login profile. Previously such apps showed a generic icon and a raw "io.github…" identifier, because windows sharing a process inherited a single identity. Each window now advertises its own Wayland app id matching its launcher.</p>
+      </description>
+    </release>
     <release version="0.1.16" date="2026-06-03">
       <description>
         <p>Adds an in-app warning: when you add a known DRM streaming site (Netflix, Spotify, Apple Music, Disney+, and others), the editor now shows a banner explaining that it won't play, so it's clear before you install. Minor website tidy-up.</p>

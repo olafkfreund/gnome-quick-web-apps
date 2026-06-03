@@ -1986,6 +1986,26 @@ fn tray_remove(app_id: &str) {
 /// `url_override` is the URL to load instead of the app's home page — used for
 /// the initial window when launched as a scheme handler (mailto:, …); relaunch
 /// windows pass it through too, else load `webapp.url`.
+/// Set this window's Wayland app_id to `app_id` (its per-app `.desktop`
+/// basename), so the compositor shows the correct per-app name + icon even when
+/// several apps share one process/GApplication via a login profile. Wayland
+/// only — a no-op under X11/XWayland (the downcast fails). Re-applied on every
+/// map, since GTK sets the GApplication id at map time and would override it.
+fn set_window_app_id(window: &adw::ApplicationWindow, app_id: &str) {
+    use gdk4_wayland::prelude::*;
+    let app_id = app_id.to_string();
+    let apply = move |win: &adw::ApplicationWindow| {
+        if let Some(toplevel) = win
+            .surface()
+            .and_then(|s| s.downcast::<gdk4_wayland::WaylandToplevel>().ok())
+        {
+            toplevel.set_application_id(&app_id);
+        }
+    };
+    apply(window);
+    window.connect_map(move |win| apply(win));
+}
+
 fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<String>) {
     // Per-window app context shared (immutably) into every handler.
     let app_ctx = Rc::new(webapp.clone());
@@ -2161,6 +2181,13 @@ fn open_window(app: &adw::Application, webapp: WebApp, url_override: Option<Stri
     }
 
     window.present();
+
+    // Give this window its OWN Wayland app_id (= its `.desktop` basename) so the
+    // dock/Alt-Tab show the right per-app name + icon — even when several apps
+    // share one process + GApplication via a shared login profile. Without this
+    // every shared-profile window inherits the GApplication id (the profile),
+    // which matches no launcher, so they show a generic icon and the raw app id.
+    set_window_app_id(&window, &webapp.wm_class());
 
     // Create the off-screen browser bound to this picture.
     let mut client = OsrClient::new(
