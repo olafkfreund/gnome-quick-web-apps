@@ -47,6 +47,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.16" date="2026-06-03">
+      <description>
+        <p>Adds an in-app warning: when you add a known DRM streaming site (Netflix, Spotify, Apple Music, Disney+, and others), the editor now shows a banner explaining that it won't play, so it's clear before you install. Minor website tidy-up.</p>
+      </description>
+    </release>
     <release version="0.1.15" date="2026-06-03">
       <description>
         <p>Cleanup: removes the unused Widevine CDM provisioning code and the Flatpak filesystem permissions that went with it, now that DRM streaming is confirmed unsupported. Smaller runner and a tighter Flatpak sandbox (fewer host-filesystem permissions).</p>

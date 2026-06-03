@@ -6,6 +6,7 @@
 
 pub mod adblock;
 pub mod badge;
+pub mod drm;
 pub mod handlers;
 pub mod icon;
 pub mod launcher;

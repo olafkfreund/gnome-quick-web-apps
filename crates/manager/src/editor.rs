@@ -343,8 +343,15 @@ pub fn present<F: Fn() + 'static>(
     page.add(&group);
     page.add(&handlers_group);
 
+    // Warn up front when the URL is a known DRM service (Netflix, Spotify, …):
+    // those gate playback behind a certified Widevine the engine can't provide,
+    // so the app installs but video/audio won't play. Updated as the URL changes.
+    let drm_banner = adw::Banner::new("");
+    set_drm_banner(&drm_banner, &url_row.text());
+
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.append(&header);
+    content.append(&drm_banner);
     content.append(&page);
     window.set_content(Some(&content));
 
@@ -359,6 +366,8 @@ pub fn present<F: Fn() + 'static>(
     url_row.connect_changed(glib::clone!(
         #[weak]
         handlers_group,
+        #[weak]
+        drm_banner,
         #[strong]
         role_switches,
         #[strong]
@@ -370,6 +379,7 @@ pub fn present<F: Fn() + 'static>(
                 &row.text(),
                 &existing_handlers,
             );
+            set_drm_banner(&drm_banner, &row.text());
         }
     ));
 
@@ -856,6 +866,21 @@ fn is_http_url(url: &str) -> bool {
     url::Url::parse(url)
         .map(|u| matches!(u.scheme(), "http" | "https"))
         .unwrap_or(false)
+}
+
+/// Show/hide the DRM warning banner for `url`. Revealed (with the service name)
+/// when the URL is a known DRM streaming service that can't play here.
+fn set_drm_banner(banner: &adw::Banner, url: &str) {
+    match qwa_core::drm::drm_service(url) {
+        Some(service) => {
+            banner.set_title(&format!(
+                "{service} uses DRM (Widevine), which can't play in Quick Web Apps. \
+                 The app will install, but its video and audio won't play."
+            ));
+            banner.set_revealed(true);
+        }
+        None => banner.set_revealed(false),
+    }
 }
 
 /// Background tail of save: optionally download a better icon, then (re)install
