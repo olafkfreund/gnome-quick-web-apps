@@ -1,0 +1,11 @@
+# MkDocs config for Backstage TechDocs.
+# Edit at will — Backstage rebuilds on next view.
+# https://backstage.io/docs/features/techdocs/getting-started
+
+site_name: gnome-quick-web-apps
+site_description: Turn any website into a first-class GNOME desktop app — GTK4/libadwaita web-app manager with PWA manifest autofill, auto icons, scope confinement and CEF rendering
+
+docs_dir: docs
+
+plugins:
+  - techdocs-core

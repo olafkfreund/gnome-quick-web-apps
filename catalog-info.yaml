@@ -7,6 +7,7 @@ metadata:
   name: gnome-quick-web-apps
   description: "Turn any website into a first-class GNOME desktop app — GTK4/libadwaita web-app manager with PWA manifest autofill, auto icons, scope confinement and CEF rendering"
   annotations:
+    backstage.io/techdocs-ref: dir:.
     github.com/project-slug: olafkfreund/gnome-quick-web-apps
   tags: [cef, gnome, gtk4, libadwaita, linux-desktop, pwa, rust, webapp]
 spec:
